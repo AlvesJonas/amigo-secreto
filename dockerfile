@@ -1,5 +1,7 @@
-FROM ruby:2.3-slim
+FROM ruby:2.5.1-slim
 # Instala nossas dependencias
+RUN apt-get update && apt-get install -y --no-install-recommends apt-utils curl gnupg
+RUN curl -sL https://deb.nodesource.com/setup_10.x | bash -
 RUN apt-get update && apt-get install -qq -y --no-install-recommends \
       build-essential nodejs libpq-dev imagemagick
 # Seta nosso path
