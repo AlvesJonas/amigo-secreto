@@ -11007,561 +11007,6 @@ if ( !noGlobal ) {
 
 return jQuery;
 }));
-(function($, undefined) {
-
-/**
- * Unobtrusive scripting adapter for jQuery
- * https://github.com/rails/jquery-ujs
- *
- * Requires jQuery 1.8.0 or later.
- *
- * Released under the MIT license
- *
- */
-
-  // Cut down on the number of issues from people inadvertently including jquery_ujs twice
-  // by detecting and raising an error when it happens.
-  'use strict';
-
-  if ( $.rails !== undefined ) {
-    $.error('jquery-ujs has already been loaded!');
-  }
-
-  // Shorthand to make it a little easier to call public rails functions from within rails.js
-  var rails;
-  var $document = $(document);
-
-  $.rails = rails = {
-    // Link elements bound by jquery-ujs
-    linkClickSelector: 'a[data-confirm], a[data-method], a[data-remote]:not([disabled]), a[data-disable-with], a[data-disable]',
-
-    // Button elements bound by jquery-ujs
-    buttonClickSelector: 'button[data-remote]:not([form]):not(form button), button[data-confirm]:not([form]):not(form button)',
-
-    // Select elements bound by jquery-ujs
-    inputChangeSelector: 'select[data-remote], input[data-remote], textarea[data-remote]',
-
-    // Form elements bound by jquery-ujs
-    formSubmitSelector: 'form',
-
-    // Form input elements bound by jquery-ujs
-    formInputClickSelector: 'form input[type=submit], form input[type=image], form button[type=submit], form button:not([type]), input[type=submit][form], input[type=image][form], button[type=submit][form], button[form]:not([type])',
-
-    // Form input elements disabled during form submission
-    disableSelector: 'input[data-disable-with]:enabled, button[data-disable-with]:enabled, textarea[data-disable-with]:enabled, input[data-disable]:enabled, button[data-disable]:enabled, textarea[data-disable]:enabled',
-
-    // Form input elements re-enabled after form submission
-    enableSelector: 'input[data-disable-with]:disabled, button[data-disable-with]:disabled, textarea[data-disable-with]:disabled, input[data-disable]:disabled, button[data-disable]:disabled, textarea[data-disable]:disabled',
-
-    // Form required input elements
-    requiredInputSelector: 'input[name][required]:not([disabled]), textarea[name][required]:not([disabled])',
-
-    // Form file input elements
-    fileInputSelector: 'input[name][type=file]:not([disabled])',
-
-    // Link onClick disable selector with possible reenable after remote submission
-    linkDisableSelector: 'a[data-disable-with], a[data-disable]',
-
-    // Button onClick disable selector with possible reenable after remote submission
-    buttonDisableSelector: 'button[data-remote][data-disable-with], button[data-remote][data-disable]',
-
-    // Up-to-date Cross-Site Request Forgery token
-    csrfToken: function() {
-     return $('meta[name=csrf-token]').attr('content');
-    },
-
-    // URL param that must contain the CSRF token
-    csrfParam: function() {
-     return $('meta[name=csrf-param]').attr('content');
-    },
-
-    // Make sure that every Ajax request sends the CSRF token
-    CSRFProtection: function(xhr) {
-      var token = rails.csrfToken();
-      if (token) xhr.setRequestHeader('X-CSRF-Token', token);
-    },
-
-    // Make sure that all forms have actual up-to-date tokens (cached forms contain old ones)
-    refreshCSRFTokens: function(){
-      $('form input[name="' + rails.csrfParam() + '"]').val(rails.csrfToken());
-    },
-
-    // Triggers an event on an element and returns false if the event result is false
-    fire: function(obj, name, data) {
-      var event = $.Event(name);
-      obj.trigger(event, data);
-      return event.result !== false;
-    },
-
-    // Default confirm dialog, may be overridden with custom confirm dialog in $.rails.confirm
-    confirm: function(message) {
-      return confirm(message);
-    },
-
-    // Default ajax function, may be overridden with custom function in $.rails.ajax
-    ajax: function(options) {
-      return $.ajax(options);
-    },
-
-    // Default way to get an element's href. May be overridden at $.rails.href.
-    href: function(element) {
-      return element[0].href;
-    },
-
-    // Checks "data-remote" if true to handle the request through a XHR request.
-    isRemote: function(element) {
-      return element.data('remote') !== undefined && element.data('remote') !== false;
-    },
-
-    // Submits "remote" forms and links with ajax
-    handleRemote: function(element) {
-      var method, url, data, withCredentials, dataType, options;
-
-      if (rails.fire(element, 'ajax:before')) {
-        withCredentials = element.data('with-credentials') || null;
-        dataType = element.data('type') || ($.ajaxSettings && $.ajaxSettings.dataType);
-
-        if (element.is('form')) {
-          method = element.data('ujs:submit-button-formmethod') || element.attr('method');
-          url = element.data('ujs:submit-button-formaction') || element.attr('action');
-          data = $(element[0]).serializeArray();
-          // memoized value from clicked submit button
-          var button = element.data('ujs:submit-button');
-          if (button) {
-            data.push(button);
-            element.data('ujs:submit-button', null);
-          }
-          element.data('ujs:submit-button-formmethod', null);
-          element.data('ujs:submit-button-formaction', null);
-        } else if (element.is(rails.inputChangeSelector)) {
-          method = element.data('method');
-          url = element.data('url');
-          data = element.serialize();
-          if (element.data('params')) data = data + '&' + element.data('params');
-        } else if (element.is(rails.buttonClickSelector)) {
-          method = element.data('method') || 'get';
-          url = element.data('url');
-          data = element.serialize();
-          if (element.data('params')) data = data + '&' + element.data('params');
-        } else {
-          method = element.data('method');
-          url = rails.href(element);
-          data = element.data('params') || null;
-        }
-
-        options = {
-          type: method || 'GET', data: data, dataType: dataType,
-          // stopping the "ajax:beforeSend" event will cancel the ajax request
-          beforeSend: function(xhr, settings) {
-            if (settings.dataType === undefined) {
-              xhr.setRequestHeader('accept', '*/*;q=0.5, ' + settings.accepts.script);
-            }
-            if (rails.fire(element, 'ajax:beforeSend', [xhr, settings])) {
-              element.trigger('ajax:send', xhr);
-            } else {
-              return false;
-            }
-          },
-          success: function(data, status, xhr) {
-            element.trigger('ajax:success', [data, status, xhr]);
-          },
-          complete: function(xhr, status) {
-            element.trigger('ajax:complete', [xhr, status]);
-          },
-          error: function(xhr, status, error) {
-            element.trigger('ajax:error', [xhr, status, error]);
-          },
-          crossDomain: rails.isCrossDomain(url)
-        };
-
-        // There is no withCredentials for IE6-8 when
-        // "Enable native XMLHTTP support" is disabled
-        if (withCredentials) {
-          options.xhrFields = {
-            withCredentials: withCredentials
-          };
-        }
-
-        // Only pass url to `ajax` options if not blank
-        if (url) { options.url = url; }
-
-        return rails.ajax(options);
-      } else {
-        return false;
-      }
-    },
-
-    // Determines if the request is a cross domain request.
-    isCrossDomain: function(url) {
-      var originAnchor = document.createElement('a');
-      originAnchor.href = location.href;
-      var urlAnchor = document.createElement('a');
-
-      try {
-        urlAnchor.href = url;
-        // This is a workaround to a IE bug.
-        urlAnchor.href = urlAnchor.href;
-
-        // If URL protocol is false or is a string containing a single colon
-        // *and* host are false, assume it is not a cross-domain request
-        // (should only be the case for IE7 and IE compatibility mode).
-        // Otherwise, evaluate protocol and host of the URL against the origin
-        // protocol and host.
-        return !(((!urlAnchor.protocol || urlAnchor.protocol === ':') && !urlAnchor.host) ||
-          (originAnchor.protocol + '//' + originAnchor.host ===
-            urlAnchor.protocol + '//' + urlAnchor.host));
-      } catch (e) {
-        // If there is an error parsing the URL, assume it is crossDomain.
-        return true;
-      }
-    },
-
-    // Handles "data-method" on links such as:
-    // <a href="/users/5" data-method="delete" rel="nofollow" data-confirm="Are you sure?">Delete</a>
-    handleMethod: function(link) {
-      var href = rails.href(link),
-        method = link.data('method'),
-        target = link.attr('target'),
-        csrfToken = rails.csrfToken(),
-        csrfParam = rails.csrfParam(),
-        form = $('<form method="post" action="' + href + '"></form>'),
-        metadataInput = '<input name="_method" value="' + method + '" type="hidden" />';
-
-      if (csrfParam !== undefined && csrfToken !== undefined && !rails.isCrossDomain(href)) {
-        metadataInput += '<input name="' + csrfParam + '" value="' + csrfToken + '" type="hidden" />';
-      }
-
-      if (target) { form.attr('target', target); }
-
-      form.hide().append(metadataInput).appendTo('body');
-      form.submit();
-    },
-
-    // Helper function that returns form elements that match the specified CSS selector
-    // If form is actually a "form" element this will return associated elements outside the from that have
-    // the html form attribute set
-    formElements: function(form, selector) {
-      return form.is('form') ? $(form[0].elements).filter(selector) : form.find(selector);
-    },
-
-    /* Disables form elements:
-      - Caches element value in 'ujs:enable-with' data store
-      - Replaces element text with value of 'data-disable-with' attribute
-      - Sets disabled property to true
-    */
-    disableFormElements: function(form) {
-      rails.formElements(form, rails.disableSelector).each(function() {
-        rails.disableFormElement($(this));
-      });
-    },
-
-    disableFormElement: function(element) {
-      var method, replacement;
-
-      method = element.is('button') ? 'html' : 'val';
-      replacement = element.data('disable-with');
-
-      if (replacement !== undefined) {
-        element.data('ujs:enable-with', element[method]());
-        element[method](replacement);
-      }
-
-      element.prop('disabled', true);
-      element.data('ujs:disabled', true);
-    },
-
-    /* Re-enables disabled form elements:
-      - Replaces element text with cached value from 'ujs:enable-with' data store (created in `disableFormElements`)
-      - Sets disabled property to false
-    */
-    enableFormElements: function(form) {
-      rails.formElements(form, rails.enableSelector).each(function() {
-        rails.enableFormElement($(this));
-      });
-    },
-
-    enableFormElement: function(element) {
-      var method = element.is('button') ? 'html' : 'val';
-      if (element.data('ujs:enable-with') !== undefined) {
-        element[method](element.data('ujs:enable-with'));
-        element.removeData('ujs:enable-with'); // clean up cache
-      }
-      element.prop('disabled', false);
-      element.removeData('ujs:disabled');
-    },
-
-   /* For 'data-confirm' attribute:
-      - Fires `confirm` event
-      - Shows the confirmation dialog
-      - Fires the `confirm:complete` event
-
-      Returns `true` if no function stops the chain and user chose yes; `false` otherwise.
-      Attaching a handler to the element's `confirm` event that returns a `falsy` value cancels the confirmation dialog.
-      Attaching a handler to the element's `confirm:complete` event that returns a `falsy` value makes this function
-      return false. The `confirm:complete` event is fired whether or not the user answered true or false to the dialog.
-   */
-    allowAction: function(element) {
-      var message = element.data('confirm'),
-          answer = false, callback;
-      if (!message) { return true; }
-
-      if (rails.fire(element, 'confirm')) {
-        try {
-          answer = rails.confirm(message);
-        } catch (e) {
-          (console.error || console.log).call(console, e.stack || e);
-        }
-        callback = rails.fire(element, 'confirm:complete', [answer]);
-      }
-      return answer && callback;
-    },
-
-    // Helper function which checks for blank inputs in a form that match the specified CSS selector
-    blankInputs: function(form, specifiedSelector, nonBlank) {
-      var foundInputs = $(),
-        input,
-        valueToCheck,
-        radiosForNameWithNoneSelected,
-        radioName,
-        selector = specifiedSelector || 'input,textarea',
-        requiredInputs = form.find(selector),
-        checkedRadioButtonNames = {};
-
-      requiredInputs.each(function() {
-        input = $(this);
-        if (input.is('input[type=radio]')) {
-
-          // Don't count unchecked required radio as blank if other radio with same name is checked,
-          // regardless of whether same-name radio input has required attribute or not. The spec
-          // states https://www.w3.org/TR/html5/forms.html#the-required-attribute
-          radioName = input.attr('name');
-
-          // Skip if we've already seen the radio with this name.
-          if (!checkedRadioButtonNames[radioName]) {
-
-            // If none checked
-            if (form.find('input[type=radio]:checked[name="' + radioName + '"]').length === 0) {
-              radiosForNameWithNoneSelected = form.find(
-                'input[type=radio][name="' + radioName + '"]');
-              foundInputs = foundInputs.add(radiosForNameWithNoneSelected);
-            }
-
-            // We only need to check each name once.
-            checkedRadioButtonNames[radioName] = radioName;
-          }
-        } else {
-          valueToCheck = input.is('input[type=checkbox],input[type=radio]') ? input.is(':checked') : !!input.val();
-          if (valueToCheck === nonBlank) {
-            foundInputs = foundInputs.add(input);
-          }
-        }
-      });
-      return foundInputs.length ? foundInputs : false;
-    },
-
-    // Helper function which checks for non-blank inputs in a form that match the specified CSS selector
-    nonBlankInputs: function(form, specifiedSelector) {
-      return rails.blankInputs(form, specifiedSelector, true); // true specifies nonBlank
-    },
-
-    // Helper function, needed to provide consistent behavior in IE
-    stopEverything: function(e) {
-      $(e.target).trigger('ujs:everythingStopped');
-      e.stopImmediatePropagation();
-      return false;
-    },
-
-    //  Replace element's html with the 'data-disable-with' after storing original html
-    //  and prevent clicking on it
-    disableElement: function(element) {
-      var replacement = element.data('disable-with');
-
-      if (replacement !== undefined) {
-        element.data('ujs:enable-with', element.html()); // store enabled state
-        element.html(replacement);
-      }
-
-      element.bind('click.railsDisable', function(e) { // prevent further clicking
-        return rails.stopEverything(e);
-      });
-      element.data('ujs:disabled', true);
-    },
-
-    // Restore element to its original state which was disabled by 'disableElement' above
-    enableElement: function(element) {
-      if (element.data('ujs:enable-with') !== undefined) {
-        element.html(element.data('ujs:enable-with')); // set to old enabled state
-        element.removeData('ujs:enable-with'); // clean up cache
-      }
-      element.unbind('click.railsDisable'); // enable element
-      element.removeData('ujs:disabled');
-    }
-  };
-
-  if (rails.fire($document, 'rails:attachBindings')) {
-
-    $.ajaxPrefilter(function(options, originalOptions, xhr){ if ( !options.crossDomain ) { rails.CSRFProtection(xhr); }});
-
-    // This event works the same as the load event, except that it fires every
-    // time the page is loaded.
-    //
-    // See https://github.com/rails/jquery-ujs/issues/357
-    // See https://developer.mozilla.org/en-US/docs/Using_Firefox_1.5_caching
-    $(window).on('pageshow.rails', function () {
-      $($.rails.enableSelector).each(function () {
-        var element = $(this);
-
-        if (element.data('ujs:disabled')) {
-          $.rails.enableFormElement(element);
-        }
-      });
-
-      $($.rails.linkDisableSelector).each(function () {
-        var element = $(this);
-
-        if (element.data('ujs:disabled')) {
-          $.rails.enableElement(element);
-        }
-      });
-    });
-
-    $document.on('ajax:complete', rails.linkDisableSelector, function() {
-        rails.enableElement($(this));
-    });
-
-    $document.on('ajax:complete', rails.buttonDisableSelector, function() {
-        rails.enableFormElement($(this));
-    });
-
-    $document.on('click.rails', rails.linkClickSelector, function(e) {
-      var link = $(this), method = link.data('method'), data = link.data('params'), metaClick = e.metaKey || e.ctrlKey;
-      if (!rails.allowAction(link)) return rails.stopEverything(e);
-
-      if (!metaClick && link.is(rails.linkDisableSelector)) rails.disableElement(link);
-
-      if (rails.isRemote(link)) {
-        if (metaClick && (!method || method === 'GET') && !data) { return true; }
-
-        var handleRemote = rails.handleRemote(link);
-        // Response from rails.handleRemote() will either be false or a deferred object promise.
-        if (handleRemote === false) {
-          rails.enableElement(link);
-        } else {
-          handleRemote.fail( function() { rails.enableElement(link); } );
-        }
-        return false;
-
-      } else if (method) {
-        rails.handleMethod(link);
-        return false;
-      }
-    });
-
-    $document.on('click.rails', rails.buttonClickSelector, function(e) {
-      var button = $(this);
-
-      if (!rails.allowAction(button) || !rails.isRemote(button)) return rails.stopEverything(e);
-
-      if (button.is(rails.buttonDisableSelector)) rails.disableFormElement(button);
-
-      var handleRemote = rails.handleRemote(button);
-      // Response from rails.handleRemote() will either be false or a deferred object promise.
-      if (handleRemote === false) {
-        rails.enableFormElement(button);
-      } else {
-        handleRemote.fail( function() { rails.enableFormElement(button); } );
-      }
-      return false;
-    });
-
-    $document.on('change.rails', rails.inputChangeSelector, function(e) {
-      var link = $(this);
-      if (!rails.allowAction(link) || !rails.isRemote(link)) return rails.stopEverything(e);
-
-      rails.handleRemote(link);
-      return false;
-    });
-
-    $document.on('submit.rails', rails.formSubmitSelector, function(e) {
-      var form = $(this),
-        remote = rails.isRemote(form),
-        blankRequiredInputs,
-        nonBlankFileInputs;
-
-      if (!rails.allowAction(form)) return rails.stopEverything(e);
-
-      // Skip other logic when required values are missing or file upload is present
-      if (form.attr('novalidate') === undefined) {
-        if (form.data('ujs:formnovalidate-button') === undefined) {
-          blankRequiredInputs = rails.blankInputs(form, rails.requiredInputSelector, false);
-          if (blankRequiredInputs && rails.fire(form, 'ajax:aborted:required', [blankRequiredInputs])) {
-            return rails.stopEverything(e);
-          }
-        } else {
-          // Clear the formnovalidate in case the next button click is not on a formnovalidate button
-          // Not strictly necessary to do here, since it is also reset on each button click, but just to be certain
-          form.data('ujs:formnovalidate-button', undefined);
-        }
-      }
-
-      if (remote) {
-        nonBlankFileInputs = rails.nonBlankInputs(form, rails.fileInputSelector);
-        if (nonBlankFileInputs) {
-          // Slight timeout so that the submit button gets properly serialized
-          // (make it easy for event handler to serialize form without disabled values)
-          setTimeout(function(){ rails.disableFormElements(form); }, 13);
-          var aborted = rails.fire(form, 'ajax:aborted:file', [nonBlankFileInputs]);
-
-          // Re-enable form elements if event bindings return false (canceling normal form submission)
-          if (!aborted) { setTimeout(function(){ rails.enableFormElements(form); }, 13); }
-
-          return aborted;
-        }
-
-        rails.handleRemote(form);
-        return false;
-
-      } else {
-        // Slight timeout so that the submit button gets properly serialized
-        setTimeout(function(){ rails.disableFormElements(form); }, 13);
-      }
-    });
-
-    $document.on('click.rails', rails.formInputClickSelector, function(event) {
-      var button = $(this);
-
-      if (!rails.allowAction(button)) return rails.stopEverything(event);
-
-      // Register the pressed submit button
-      var name = button.attr('name'),
-        data = name ? {name:name, value:button.val()} : null;
-
-      var form = button.closest('form');
-      if (form.length === 0) {
-        form = $('#' + button.attr('form'));
-      }
-      form.data('ujs:submit-button', data);
-
-      // Save attributes from button
-      form.data('ujs:formnovalidate-button', button.attr('formnovalidate'));
-      form.data('ujs:submit-button-formaction', button.attr('formaction'));
-      form.data('ujs:submit-button-formmethod', button.attr('formmethod'));
-    });
-
-    $document.on('ajax:send.rails', rails.formSubmitSelector, function(event) {
-      if (this === event.target) rails.disableFormElements($(this));
-    });
-
-    $document.on('ajax:complete.rails', rails.formSubmitSelector, function(event) {
-      if (this === event.target) rails.enableFormElements($(this));
-    });
-
-    $(function(){
-      rails.refreshCSRFTokens();
-    });
-  }
-
-})( jQuery );
 /*
 Turbolinks 5.2.0
 Copyright © 2018 Basecamp, LLC
@@ -11569,8 +11014,23 @@ Copyright © 2018 Basecamp, LLC
 
 (function(){var t=this;(function(){(function(){this.Turbolinks={supported:function(){return null!=window.history.pushState&&null!=window.requestAnimationFrame&&null!=window.addEventListener}(),visit:function(t,r){return e.controller.visit(t,r)},clearCache:function(){return e.controller.clearCache()},setProgressBarDelay:function(t){return e.controller.setProgressBarDelay(t)}}}).call(this)}).call(t);var e=t.Turbolinks;(function(){(function(){var t,r,n,o=[].slice;e.copyObject=function(t){var e,r,n;r={};for(e in t)n=t[e],r[e]=n;return r},e.closest=function(e,r){return t.call(e,r)},t=function(){var t,e;return t=document.documentElement,null!=(e=t.closest)?e:function(t){var e;for(e=this;e;){if(e.nodeType===Node.ELEMENT_NODE&&r.call(e,t))return e;e=e.parentNode}}}(),e.defer=function(t){return setTimeout(t,1)},e.throttle=function(t){var e;return e=null,function(){var r;return r=1<=arguments.length?o.call(arguments,0):[],null!=e?e:e=requestAnimationFrame(function(n){return function(){return e=null,t.apply(n,r)}}(this))}},e.dispatch=function(t,e){var r,o,i,s,a,u;return a=null!=e?e:{},u=a.target,r=a.cancelable,o=a.data,i=document.createEvent("Events"),i.initEvent(t,!0,r===!0),i.data=null!=o?o:{},i.cancelable&&!n&&(s=i.preventDefault,i.preventDefault=function(){return this.defaultPrevented||Object.defineProperty(this,"defaultPrevented",{get:function(){return!0}}),s.call(this)}),(null!=u?u:document).dispatchEvent(i),i},n=function(){var t;return t=document.createEvent("Events"),t.initEvent("test",!0,!0),t.preventDefault(),t.defaultPrevented}(),e.match=function(t,e){return r.call(t,e)},r=function(){var t,e,r,n;return t=document.documentElement,null!=(e=null!=(r=null!=(n=t.matchesSelector)?n:t.webkitMatchesSelector)?r:t.msMatchesSelector)?e:t.mozMatchesSelector}(),e.uuid=function(){var t,e,r;for(r="",t=e=1;36>=e;t=++e)r+=9===t||14===t||19===t||24===t?"-":15===t?"4":20===t?(Math.floor(4*Math.random())+8).toString(16):Math.floor(15*Math.random()).toString(16);return r}}).call(this),function(){e.Location=function(){function t(t){var e,r;null==t&&(t=""),r=document.createElement("a"),r.href=t.toString(),this.absoluteURL=r.href,e=r.hash.length,2>e?this.requestURL=this.absoluteURL:(this.requestURL=this.absoluteURL.slice(0,-e),this.anchor=r.hash.slice(1))}var e,r,n,o;return t.wrap=function(t){return t instanceof this?t:new this(t)},t.prototype.getOrigin=function(){return this.absoluteURL.split("/",3).join("/")},t.prototype.getPath=function(){var t,e;return null!=(t=null!=(e=this.requestURL.match(/\/\/[^\/]*(\/[^?;]*)/))?e[1]:void 0)?t:"/"},t.prototype.getPathComponents=function(){return this.getPath().split("/").slice(1)},t.prototype.getLastPathComponent=function(){return this.getPathComponents().slice(-1)[0]},t.prototype.getExtension=function(){var t,e;return null!=(t=null!=(e=this.getLastPathComponent().match(/\.[^.]*$/))?e[0]:void 0)?t:""},t.prototype.isHTML=function(){return this.getExtension().match(/^(?:|\.(?:htm|html|xhtml))$/)},t.prototype.isPrefixedBy=function(t){var e;return e=r(t),this.isEqualTo(t)||o(this.absoluteURL,e)},t.prototype.isEqualTo=function(t){return this.absoluteURL===(null!=t?t.absoluteURL:void 0)},t.prototype.toCacheKey=function(){return this.requestURL},t.prototype.toJSON=function(){return this.absoluteURL},t.prototype.toString=function(){return this.absoluteURL},t.prototype.valueOf=function(){return this.absoluteURL},r=function(t){return e(t.getOrigin()+t.getPath())},e=function(t){return n(t,"/")?t:t+"/"},o=function(t,e){return t.slice(0,e.length)===e},n=function(t,e){return t.slice(-e.length)===e},t}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.HttpRequest=function(){function r(r,n,o){this.delegate=r,this.requestCanceled=t(this.requestCanceled,this),this.requestTimedOut=t(this.requestTimedOut,this),this.requestFailed=t(this.requestFailed,this),this.requestLoaded=t(this.requestLoaded,this),this.requestProgressed=t(this.requestProgressed,this),this.url=e.Location.wrap(n).requestURL,this.referrer=e.Location.wrap(o).absoluteURL,this.createXHR()}return r.NETWORK_FAILURE=0,r.TIMEOUT_FAILURE=-1,r.timeout=60,r.prototype.send=function(){var t;return this.xhr&&!this.sent?(this.notifyApplicationBeforeRequestStart(),this.setProgress(0),this.xhr.send(),this.sent=!0,"function"==typeof(t=this.delegate).requestStarted?t.requestStarted():void 0):void 0},r.prototype.cancel=function(){return this.xhr&&this.sent?this.xhr.abort():void 0},r.prototype.requestProgressed=function(t){return t.lengthComputable?this.setProgress(t.loaded/t.total):void 0},r.prototype.requestLoaded=function(){return this.endRequest(function(t){return function(){var e;return 200<=(e=t.xhr.status)&&300>e?t.delegate.requestCompletedWithResponse(t.xhr.responseText,t.xhr.getResponseHeader("Turbolinks-Location")):(t.failed=!0,t.delegate.requestFailedWithStatusCode(t.xhr.status,t.xhr.responseText))}}(this))},r.prototype.requestFailed=function(){return this.endRequest(function(t){return function(){return t.failed=!0,t.delegate.requestFailedWithStatusCode(t.constructor.NETWORK_FAILURE)}}(this))},r.prototype.requestTimedOut=function(){return this.endRequest(function(t){return function(){return t.failed=!0,t.delegate.requestFailedWithStatusCode(t.constructor.TIMEOUT_FAILURE)}}(this))},r.prototype.requestCanceled=function(){return this.endRequest()},r.prototype.notifyApplicationBeforeRequestStart=function(){return e.dispatch("turbolinks:request-start",{data:{url:this.url,xhr:this.xhr}})},r.prototype.notifyApplicationAfterRequestEnd=function(){return e.dispatch("turbolinks:request-end",{data:{url:this.url,xhr:this.xhr}})},r.prototype.createXHR=function(){return this.xhr=new XMLHttpRequest,this.xhr.open("GET",this.url,!0),this.xhr.timeout=1e3*this.constructor.timeout,this.xhr.setRequestHeader("Accept","text/html, application/xhtml+xml"),this.xhr.setRequestHeader("Turbolinks-Referrer",this.referrer),this.xhr.onprogress=this.requestProgressed,this.xhr.onload=this.requestLoaded,this.xhr.onerror=this.requestFailed,this.xhr.ontimeout=this.requestTimedOut,this.xhr.onabort=this.requestCanceled},r.prototype.endRequest=function(t){return this.xhr?(this.notifyApplicationAfterRequestEnd(),null!=t&&t.call(this),this.destroy()):void 0},r.prototype.setProgress=function(t){var e;return this.progress=t,"function"==typeof(e=this.delegate).requestProgressed?e.requestProgressed(this.progress):void 0},r.prototype.destroy=function(){var t;return this.setProgress(1),"function"==typeof(t=this.delegate).requestFinished&&t.requestFinished(),this.delegate=null,this.xhr=null},r}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.ProgressBar=function(){function e(){this.trickle=t(this.trickle,this),this.stylesheetElement=this.createStylesheetElement(),this.progressElement=this.createProgressElement()}var r;return r=300,e.defaultCSS=".turbolinks-progress-bar {\n  position: fixed;\n  display: block;\n  top: 0;\n  left: 0;\n  height: 3px;\n  background: #0076ff;\n  z-index: 9999;\n  transition: width "+r+"ms ease-out, opacity "+r/2+"ms "+r/2+"ms ease-in;\n  transform: translate3d(0, 0, 0);\n}",e.prototype.show=function(){return this.visible?void 0:(this.visible=!0,this.installStylesheetElement(),this.installProgressElement(),this.startTrickling())},e.prototype.hide=function(){return this.visible&&!this.hiding?(this.hiding=!0,this.fadeProgressElement(function(t){return function(){return t.uninstallProgressElement(),t.stopTrickling(),t.visible=!1,t.hiding=!1}}(this))):void 0},e.prototype.setValue=function(t){return this.value=t,this.refresh()},e.prototype.installStylesheetElement=function(){return document.head.insertBefore(this.stylesheetElement,document.head.firstChild)},e.prototype.installProgressElement=function(){return this.progressElement.style.width=0,this.progressElement.style.opacity=1,document.documentElement.insertBefore(this.progressElement,document.body),this.refresh()},e.prototype.fadeProgressElement=function(t){return this.progressElement.style.opacity=0,setTimeout(t,1.5*r)},e.prototype.uninstallProgressElement=function(){return this.progressElement.parentNode?document.documentElement.removeChild(this.progressElement):void 0},e.prototype.startTrickling=function(){return null!=this.trickleInterval?this.trickleInterval:this.trickleInterval=setInterval(this.trickle,r)},e.prototype.stopTrickling=function(){return clearInterval(this.trickleInterval),this.trickleInterval=null},e.prototype.trickle=function(){return this.setValue(this.value+Math.random()/100)},e.prototype.refresh=function(){return requestAnimationFrame(function(t){return function(){return t.progressElement.style.width=10+90*t.value+"%"}}(this))},e.prototype.createStylesheetElement=function(){var t;return t=document.createElement("style"),t.type="text/css",t.textContent=this.constructor.defaultCSS,t},e.prototype.createProgressElement=function(){var t;return t=document.createElement("div"),t.className="turbolinks-progress-bar",t},e}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.BrowserAdapter=function(){function r(r){this.controller=r,this.showProgressBar=t(this.showProgressBar,this),this.progressBar=new e.ProgressBar}var n,o,i;return i=e.HttpRequest,n=i.NETWORK_FAILURE,o=i.TIMEOUT_FAILURE,r.prototype.visitProposedToLocationWithAction=function(t,e){return this.controller.startVisitToLocationWithAction(t,e)},r.prototype.visitStarted=function(t){return t.issueRequest(),t.changeHistory(),t.loadCachedSnapshot()},r.prototype.visitRequestStarted=function(t){return this.progressBar.setValue(0),t.hasCachedSnapshot()||"restore"!==t.action?this.showProgressBarAfterDelay():this.showProgressBar()},r.prototype.visitRequestProgressed=function(t){return this.progressBar.setValue(t.progress)},r.prototype.visitRequestCompleted=function(t){return t.loadResponse()},r.prototype.visitRequestFailedWithStatusCode=function(t,e){switch(e){case n:case o:return this.reload();default:return t.loadResponse()}},r.prototype.visitRequestFinished=function(t){return this.hideProgressBar()},r.prototype.visitCompleted=function(t){return t.followRedirect()},r.prototype.pageInvalidated=function(){return this.reload()},r.prototype.showProgressBarAfterDelay=function(){return this.progressBarTimeout=setTimeout(this.showProgressBar,this.controller.progressBarDelay)},r.prototype.showProgressBar=function(){return this.progressBar.show()},r.prototype.hideProgressBar=function(){return this.progressBar.hide(),clearTimeout(this.progressBarTimeout)},r.prototype.reload=function(){return window.location.reload()},r}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.History=function(){function r(e){this.delegate=e,this.onPageLoad=t(this.onPageLoad,this),this.onPopState=t(this.onPopState,this)}return r.prototype.start=function(){return this.started?void 0:(addEventListener("popstate",this.onPopState,!1),addEventListener("load",this.onPageLoad,!1),this.started=!0)},r.prototype.stop=function(){return this.started?(removeEventListener("popstate",this.onPopState,!1),removeEventListener("load",this.onPageLoad,!1),this.started=!1):void 0},r.prototype.push=function(t,r){return t=e.Location.wrap(t),this.update("push",t,r)},r.prototype.replace=function(t,r){return t=e.Location.wrap(t),this.update("replace",t,r)},r.prototype.onPopState=function(t){var r,n,o,i;return this.shouldHandlePopState()&&(i=null!=(n=t.state)?n.turbolinks:void 0)?(r=e.Location.wrap(window.location),o=i.restorationIdentifier,this.delegate.historyPoppedToLocationWithRestorationIdentifier(r,o)):void 0},r.prototype.onPageLoad=function(t){return e.defer(function(t){return function(){return t.pageLoaded=!0}}(this))},r.prototype.shouldHandlePopState=function(){return this.pageIsLoaded()},r.prototype.pageIsLoaded=function(){return this.pageLoaded||"complete"===document.readyState},r.prototype.update=function(t,e,r){var n;return n={turbolinks:{restorationIdentifier:r}},history[t+"State"](n,null,e)},r}()}.call(this),function(){e.HeadDetails=function(){function t(t){var e,r,n,s,a,u;for(this.elements={},n=0,a=t.length;a>n;n++)u=t[n],u.nodeType===Node.ELEMENT_NODE&&(s=u.outerHTML,r=null!=(e=this.elements)[s]?e[s]:e[s]={type:i(u),tracked:o(u),elements:[]},r.elements.push(u))}var e,r,n,o,i;return t.fromHeadElement=function(t){var e;return new this(null!=(e=null!=t?t.childNodes:void 0)?e:[])},t.prototype.hasElementWithKey=function(t){return t in this.elements},t.prototype.getTrackedElementSignature=function(){var t,e;return function(){var r,n;r=this.elements,n=[];for(t in r)e=r[t].tracked,e&&n.push(t);return n}.call(this).join("")},t.prototype.getScriptElementsNotInDetails=function(t){return this.getElementsMatchingTypeNotInDetails("script",t)},t.prototype.getStylesheetElementsNotInDetails=function(t){return this.getElementsMatchingTypeNotInDetails("stylesheet",t)},t.prototype.getElementsMatchingTypeNotInDetails=function(t,e){var r,n,o,i,s,a;o=this.elements,s=[];for(n in o)i=o[n],a=i.type,r=i.elements,a!==t||e.hasElementWithKey(n)||s.push(r[0]);return s},t.prototype.getProvisionalElements=function(){var t,e,r,n,o,i,s;r=[],n=this.elements;for(e in n)o=n[e],s=o.type,i=o.tracked,t=o.elements,null!=s||i?t.length>1&&r.push.apply(r,t.slice(1)):r.push.apply(r,t);return r},t.prototype.getMetaValue=function(t){var e;return null!=(e=this.findMetaElementByName(t))?e.getAttribute("content"):void 0},t.prototype.findMetaElementByName=function(t){var r,n,o,i;r=void 0,i=this.elements;for(o in i)n=i[o].elements,e(n[0],t)&&(r=n[0]);return r},i=function(t){return r(t)?"script":n(t)?"stylesheet":void 0},o=function(t){return"reload"===t.getAttribute("data-turbolinks-track")},r=function(t){var e;return e=t.tagName.toLowerCase(),"script"===e},n=function(t){var e;return e=t.tagName.toLowerCase(),"style"===e||"link"===e&&"stylesheet"===t.getAttribute("rel")},e=function(t,e){var r;return r=t.tagName.toLowerCase(),"meta"===r&&t.getAttribute("name")===e},t}()}.call(this),function(){e.Snapshot=function(){function t(t,e){this.headDetails=t,this.bodyElement=e}return t.wrap=function(t){return t instanceof this?t:"string"==typeof t?this.fromHTMLString(t):this.fromHTMLElement(t)},t.fromHTMLString=function(t){var e;return e=document.createElement("html"),e.innerHTML=t,this.fromHTMLElement(e)},t.fromHTMLElement=function(t){var r,n,o,i;return o=t.querySelector("head"),r=null!=(i=t.querySelector("body"))?i:document.createElement("body"),n=e.HeadDetails.fromHeadElement(o),new this(n,r)},t.prototype.clone=function(){return new this.constructor(this.headDetails,this.bodyElement.cloneNode(!0))},t.prototype.getRootLocation=function(){var t,r;return r=null!=(t=this.getSetting("root"))?t:"/",new e.Location(r)},t.prototype.getCacheControlValue=function(){return this.getSetting("cache-control")},t.prototype.getElementForAnchor=function(t){try{return this.bodyElement.querySelector("[id='"+t+"'], a[name='"+t+"']")}catch(e){}},t.prototype.getPermanentElements=function(){return this.bodyElement.querySelectorAll("[id][data-turbolinks-permanent]")},t.prototype.getPermanentElementById=function(t){return this.bodyElement.querySelector("#"+t+"[data-turbolinks-permanent]")},t.prototype.getPermanentElementsPresentInSnapshot=function(t){var e,r,n,o,i;for(o=this.getPermanentElements(),i=[],r=0,n=o.length;n>r;r++)e=o[r],t.getPermanentElementById(e.id)&&i.push(e);return i},t.prototype.findFirstAutofocusableElement=function(){return this.bodyElement.querySelector("[autofocus]")},t.prototype.hasAnchor=function(t){return null!=this.getElementForAnchor(t)},t.prototype.isPreviewable=function(){return"no-preview"!==this.getCacheControlValue()},t.prototype.isCacheable=function(){return"no-cache"!==this.getCacheControlValue()},t.prototype.isVisitable=function(){return"reload"!==this.getSetting("visit-control")},t.prototype.getSetting=function(t){return this.headDetails.getMetaValue("turbolinks-"+t)},t}()}.call(this),function(){var t=[].slice;e.Renderer=function(){function e(){}var r;return e.render=function(){var e,r,n,o;return n=arguments[0],r=arguments[1],e=3<=arguments.length?t.call(arguments,2):[],o=function(t,e,r){r.prototype=t.prototype;var n=new r,o=t.apply(n,e);return Object(o)===o?o:n}(this,e,function(){}),o.delegate=n,o.render(r),o},e.prototype.renderView=function(t){return this.delegate.viewWillRender(this.newBody),t(),this.delegate.viewRendered(this.newBody)},e.prototype.invalidateView=function(){return this.delegate.viewInvalidated()},e.prototype.createScriptElement=function(t){var e;return"false"===t.getAttribute("data-turbolinks-eval")?t:(e=document.createElement("script"),e.textContent=t.textContent,e.async=!1,r(e,t),e)},r=function(t,e){var r,n,o,i,s,a,u;for(i=e.attributes,a=[],r=0,n=i.length;n>r;r++)s=i[r],o=s.name,u=s.value,a.push(t.setAttribute(o,u));return a},e}()}.call(this),function(){var t,r,n=function(t,e){function r(){this.constructor=t}for(var n in e)o.call(e,n)&&(t[n]=e[n]);return r.prototype=e.prototype,t.prototype=new r,t.__super__=e.prototype,t},o={}.hasOwnProperty;e.SnapshotRenderer=function(e){function o(t,e,r){this.currentSnapshot=t,this.newSnapshot=e,this.isPreview=r,this.currentHeadDetails=this.currentSnapshot.headDetails,this.newHeadDetails=this.newSnapshot.headDetails,this.currentBody=this.currentSnapshot.bodyElement,this.newBody=this.newSnapshot.bodyElement}return n(o,e),o.prototype.render=function(t){return this.shouldRender()?(this.mergeHead(),this.renderView(function(e){return function(){return e.replaceBody(),e.isPreview||e.focusFirstAutofocusableElement(),t()}}(this))):this.invalidateView()},o.prototype.mergeHead=function(){return this.copyNewHeadStylesheetElements(),this.copyNewHeadScriptElements(),this.removeCurrentHeadProvisionalElements(),this.copyNewHeadProvisionalElements()},o.prototype.replaceBody=function(){var t;return t=this.relocateCurrentBodyPermanentElements(),this.activateNewBodyScriptElements(),this.assignNewBody(),this.replacePlaceholderElementsWithClonedPermanentElements(t)},o.prototype.shouldRender=function(){return this.newSnapshot.isVisitable()&&this.trackedElementsAreIdentical()},o.prototype.trackedElementsAreIdentical=function(){return this.currentHeadDetails.getTrackedElementSignature()===this.newHeadDetails.getTrackedElementSignature()},o.prototype.copyNewHeadStylesheetElements=function(){var t,e,r,n,o;for(n=this.getNewHeadStylesheetElements(),o=[],e=0,r=n.length;r>e;e++)t=n[e],o.push(document.head.appendChild(t));return o},o.prototype.copyNewHeadScriptElements=function(){var t,e,r,n,o;for(n=this.getNewHeadScriptElements(),o=[],e=0,r=n.length;r>e;e++)t=n[e],o.push(document.head.appendChild(this.createScriptElement(t)));return o},o.prototype.removeCurrentHeadProvisionalElements=function(){var t,e,r,n,o;for(n=this.getCurrentHeadProvisionalElements(),o=[],e=0,r=n.length;r>e;e++)t=n[e],o.push(document.head.removeChild(t));return o},o.prototype.copyNewHeadProvisionalElements=function(){var t,e,r,n,o;for(n=this.getNewHeadProvisionalElements(),o=[],e=0,r=n.length;r>e;e++)t=n[e],o.push(document.head.appendChild(t));return o},o.prototype.relocateCurrentBodyPermanentElements=function(){var e,n,o,i,s,a,u;for(a=this.getCurrentBodyPermanentElements(),u=[],e=0,n=a.length;n>e;e++)i=a[e],s=t(i),o=this.newSnapshot.getPermanentElementById(i.id),r(i,s.element),r(o,i),u.push(s);return u},o.prototype.replacePlaceholderElementsWithClonedPermanentElements=function(t){var e,n,o,i,s,a,u;for(u=[],o=0,i=t.length;i>o;o++)a=t[o],n=a.element,s=a.permanentElement,e=s.cloneNode(!0),u.push(r(n,e));return u},o.prototype.activateNewBodyScriptElements=function(){var t,e,n,o,i,s;for(i=this.getNewBodyScriptElements(),s=[],e=0,o=i.length;o>e;e++)n=i[e],t=this.createScriptElement(n),s.push(r(n,t));return s},o.prototype.assignNewBody=function(){return document.body=this.newBody},o.prototype.focusFirstAutofocusableElement=function(){var t;return null!=(t=this.newSnapshot.findFirstAutofocusableElement())?t.focus():void 0},o.prototype.getNewHeadStylesheetElements=function(){return this.newHeadDetails.getStylesheetElementsNotInDetails(this.currentHeadDetails)},o.prototype.getNewHeadScriptElements=function(){return this.newHeadDetails.getScriptElementsNotInDetails(this.currentHeadDetails)},o.prototype.getCurrentHeadProvisionalElements=function(){return this.currentHeadDetails.getProvisionalElements()},o.prototype.getNewHeadProvisionalElements=function(){return this.newHeadDetails.getProvisionalElements()},o.prototype.getCurrentBodyPermanentElements=function(){return this.currentSnapshot.getPermanentElementsPresentInSnapshot(this.newSnapshot)},o.prototype.getNewBodyScriptElements=function(){return this.newBody.querySelectorAll("script")},o}(e.Renderer),t=function(t){var e;return e=document.createElement("meta"),e.setAttribute("name","turbolinks-permanent-placeholder"),e.setAttribute("content",t.id),{element:e,permanentElement:t}},r=function(t,e){var r;return(r=t.parentNode)?r.replaceChild(e,t):void 0}}.call(this),function(){var t=function(t,e){function n(){this.constructor=t}for(var o in e)r.call(e,o)&&(t[o]=e[o]);return n.prototype=e.prototype,t.prototype=new n,t.__super__=e.prototype,t},r={}.hasOwnProperty;e.ErrorRenderer=function(e){function r(t){var e;e=document.createElement("html"),e.innerHTML=t,this.newHead=e.querySelector("head"),this.newBody=e.querySelector("body")}return t(r,e),r.prototype.render=function(t){return this.renderView(function(e){return function(){return e.replaceHeadAndBody(),e.activateBodyScriptElements(),t()}}(this))},r.prototype.replaceHeadAndBody=function(){var t,e;return e=document.head,t=document.body,e.parentNode.replaceChild(this.newHead,e),t.parentNode.replaceChild(this.newBody,t)},r.prototype.activateBodyScriptElements=function(){var t,e,r,n,o,i;for(n=this.getScriptElements(),i=[],e=0,r=n.length;r>e;e++)o=n[e],t=this.createScriptElement(o),i.push(o.parentNode.replaceChild(t,o));return i},r.prototype.getScriptElements=function(){return document.documentElement.querySelectorAll("script")},r}(e.Renderer)}.call(this),function(){e.View=function(){function t(t){this.delegate=t,this.htmlElement=document.documentElement}return t.prototype.getRootLocation=function(){return this.getSnapshot().getRootLocation()},t.prototype.getElementForAnchor=function(t){return this.getSnapshot().getElementForAnchor(t)},t.prototype.getSnapshot=function(){return e.Snapshot.fromHTMLElement(this.htmlElement)},t.prototype.render=function(t,e){var r,n,o;return o=t.snapshot,r=t.error,n=t.isPreview,this.markAsPreview(n),null!=o?this.renderSnapshot(o,n,e):this.renderError(r,e)},t.prototype.markAsPreview=function(t){return t?this.htmlElement.setAttribute("data-turbolinks-preview",""):this.htmlElement.removeAttribute("data-turbolinks-preview")},t.prototype.renderSnapshot=function(t,r,n){return e.SnapshotRenderer.render(this.delegate,n,this.getSnapshot(),e.Snapshot.wrap(t),r)},t.prototype.renderError=function(t,r){return e.ErrorRenderer.render(this.delegate,r,t)},t}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.ScrollManager=function(){function r(r){this.delegate=r,this.onScroll=t(this.onScroll,this),this.onScroll=e.throttle(this.onScroll)}return r.prototype.start=function(){return this.started?void 0:(addEventListener("scroll",this.onScroll,!1),this.onScroll(),this.started=!0)},r.prototype.stop=function(){return this.started?(removeEventListener("scroll",this.onScroll,!1),this.started=!1):void 0},r.prototype.scrollToElement=function(t){return t.scrollIntoView()},r.prototype.scrollToPosition=function(t){var e,r;return e=t.x,r=t.y,window.scrollTo(e,r)},r.prototype.onScroll=function(t){return this.updatePosition({x:window.pageXOffset,y:window.pageYOffset})},r.prototype.updatePosition=function(t){var e;return this.position=t,null!=(e=this.delegate)?e.scrollPositionChanged(this.position):void 0},r}()}.call(this),function(){e.SnapshotCache=function(){function t(t){this.size=t,this.keys=[],this.snapshots={}}var r;return t.prototype.has=function(t){var e;return e=r(t),e in this.snapshots},t.prototype.get=function(t){var e;if(this.has(t))return e=this.read(t),this.touch(t),e},t.prototype.put=function(t,e){return this.write(t,e),this.touch(t),e},t.prototype.read=function(t){var e;return e=r(t),this.snapshots[e]},t.prototype.write=function(t,e){var n;return n=r(t),this.snapshots[n]=e},t.prototype.touch=function(t){var e,n;return n=r(t),e=this.keys.indexOf(n),e>-1&&this.keys.splice(e,1),this.keys.unshift(n),this.trim()},t.prototype.trim=function(){var t,e,r,n,o;for(n=this.keys.splice(this.size),o=[],t=0,r=n.length;r>t;t++)e=n[t],o.push(delete this.snapshots[e]);return o},r=function(t){return e.Location.wrap(t).toCacheKey()},t}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.Visit=function(){function r(r,n,o){this.controller=r,this.action=o,this.performScroll=t(this.performScroll,this),this.identifier=e.uuid(),this.location=e.Location.wrap(n),this.adapter=this.controller.adapter,this.state="initialized",this.timingMetrics={}}var n;return r.prototype.start=function(){return"initialized"===this.state?(this.recordTimingMetric("visitStart"),this.state="started",this.adapter.visitStarted(this)):void 0},r.prototype.cancel=function(){var t;return"started"===this.state?(null!=(t=this.request)&&t.cancel(),this.cancelRender(),this.state="canceled"):void 0},r.prototype.complete=function(){var t;return"started"===this.state?(this.recordTimingMetric("visitEnd"),this.state="completed","function"==typeof(t=this.adapter).visitCompleted&&t.visitCompleted(this),this.controller.visitCompleted(this)):void 0},r.prototype.fail=function(){var t;return"started"===this.state?(this.state="failed","function"==typeof(t=this.adapter).visitFailed?t.visitFailed(this):void 0):void 0},r.prototype.changeHistory=function(){var t,e;return this.historyChanged?void 0:(t=this.location.isEqualTo(this.referrer)?"replace":this.action,e=n(t),this.controller[e](this.location,this.restorationIdentifier),this.historyChanged=!0)},r.prototype.issueRequest=function(){return this.shouldIssueRequest()&&null==this.request?(this.progress=0,this.request=new e.HttpRequest(this,this.location,this.referrer),this.request.send()):void 0},r.prototype.getCachedSnapshot=function(){var t;return!(t=this.controller.getCachedSnapshotForLocation(this.location))||null!=this.location.anchor&&!t.hasAnchor(this.location.anchor)||"restore"!==this.action&&!t.isPreviewable()?void 0:t},r.prototype.hasCachedSnapshot=function(){return null!=this.getCachedSnapshot()},r.prototype.loadCachedSnapshot=function(){var t,e;return(e=this.getCachedSnapshot())?(t=this.shouldIssueRequest(),this.render(function(){var r;return this.cacheSnapshot(),this.controller.render({snapshot:e,isPreview:t},this.performScroll),"function"==typeof(r=this.adapter).visitRendered&&r.visitRendered(this),t?void 0:this.complete()})):void 0},r.prototype.loadResponse=function(){return null!=this.response?this.render(function(){var t,e;return this.cacheSnapshot(),this.request.failed?(this.controller.render({error:this.response},this.performScroll),"function"==typeof(t=this.adapter).visitRendered&&t.visitRendered(this),this.fail()):(this.controller.render({snapshot:this.response},this.performScroll),"function"==typeof(e=this.adapter).visitRendered&&e.visitRendered(this),this.complete())}):void 0},r.prototype.followRedirect=function(){return this.redirectedToLocation&&!this.followedRedirect?(this.location=this.redirectedToLocation,this.controller.replaceHistoryWithLocationAndRestorationIdentifier(this.redirectedToLocation,this.restorationIdentifier),this.followedRedirect=!0):void 0},r.prototype.requestStarted=function(){var t;return this.recordTimingMetric("requestStart"),"function"==typeof(t=this.adapter).visitRequestStarted?t.visitRequestStarted(this):void 0},r.prototype.requestProgressed=function(t){var e;return this.progress=t,"function"==typeof(e=this.adapter).visitRequestProgressed?e.visitRequestProgressed(this):void 0},r.prototype.requestCompletedWithResponse=function(t,r){return this.response=t,null!=r&&(this.redirectedToLocation=e.Location.wrap(r)),this.adapter.visitRequestCompleted(this)},r.prototype.requestFailedWithStatusCode=function(t,e){return this.response=e,this.adapter.visitRequestFailedWithStatusCode(this,t)},r.prototype.requestFinished=function(){var t;return this.recordTimingMetric("requestEnd"),"function"==typeof(t=this.adapter).visitRequestFinished?t.visitRequestFinished(this):void 0},r.prototype.performScroll=function(){return this.scrolled?void 0:("restore"===this.action?this.scrollToRestoredPosition()||this.scrollToTop():this.scrollToAnchor()||this.scrollToTop(),this.scrolled=!0)},r.prototype.scrollToRestoredPosition=function(){var t,e;return t=null!=(e=this.restorationData)?e.scrollPosition:void 0,null!=t?(this.controller.scrollToPosition(t),!0):void 0},r.prototype.scrollToAnchor=function(){return null!=this.location.anchor?(this.controller.scrollToAnchor(this.location.anchor),!0):void 0},r.prototype.scrollToTop=function(){return this.controller.scrollToPosition({x:0,y:0})},r.prototype.recordTimingMetric=function(t){var e;return null!=(e=this.timingMetrics)[t]?e[t]:e[t]=(new Date).getTime()},r.prototype.getTimingMetrics=function(){return e.copyObject(this.timingMetrics)},n=function(t){switch(t){case"replace":return"replaceHistoryWithLocationAndRestorationIdentifier";case"advance":case"restore":return"pushHistoryWithLocationAndRestorationIdentifier"}},r.prototype.shouldIssueRequest=function(){return"restore"===this.action?!this.hasCachedSnapshot():!0},r.prototype.cacheSnapshot=function(){return this.snapshotCached?void 0:(this.controller.cacheSnapshot(),this.snapshotCached=!0)},r.prototype.render=function(t){return this.cancelRender(),this.frame=requestAnimationFrame(function(e){return function(){return e.frame=null,t.call(e)}}(this))},r.prototype.cancelRender=function(){return this.frame?cancelAnimationFrame(this.frame):void 0},r}()}.call(this),function(){var t=function(t,e){return function(){return t.apply(e,arguments)}};e.Controller=function(){function r(){this.clickBubbled=t(this.clickBubbled,this),this.clickCaptured=t(this.clickCaptured,this),this.pageLoaded=t(this.pageLoaded,this),this.history=new e.History(this),this.view=new e.View(this),this.scrollManager=new e.ScrollManager(this),this.restorationData={},this.clearCache(),this.setProgressBarDelay(500)}return r.prototype.start=function(){return e.supported&&!this.started?(addEventListener("click",this.clickCaptured,!0),addEventListener("DOMContentLoaded",this.pageLoaded,!1),this.scrollManager.start(),this.startHistory(),this.started=!0,this.enabled=!0):void 0},r.prototype.disable=function(){return this.enabled=!1},r.prototype.stop=function(){return this.started?(removeEventListener("click",this.clickCaptured,!0),removeEventListener("DOMContentLoaded",this.pageLoaded,!1),this.scrollManager.stop(),this.stopHistory(),this.started=!1):void 0},r.prototype.clearCache=function(){return this.cache=new e.SnapshotCache(10)},r.prototype.visit=function(t,r){var n,o;return null==r&&(r={}),t=e.Location.wrap(t),this.applicationAllowsVisitingLocation(t)?this.locationIsVisitable(t)?(n=null!=(o=r.action)?o:"advance",this.adapter.visitProposedToLocationWithAction(t,n)):window.location=t:void 0},r.prototype.startVisitToLocationWithAction=function(t,r,n){var o;return e.supported?(o=this.getRestorationDataForIdentifier(n),this.startVisit(t,r,{restorationData:o})):window.location=t},r.prototype.setProgressBarDelay=function(t){return this.progressBarDelay=t},r.prototype.startHistory=function(){return this.location=e.Location.wrap(window.location),this.restorationIdentifier=e.uuid(),this.history.start(),this.history.replace(this.location,this.restorationIdentifier)},r.prototype.stopHistory=function(){return this.history.stop()},r.prototype.pushHistoryWithLocationAndRestorationIdentifier=function(t,r){return this.restorationIdentifier=r,this.location=e.Location.wrap(t),this.history.push(this.location,this.restorationIdentifier)},r.prototype.replaceHistoryWithLocationAndRestorationIdentifier=function(t,r){return this.restorationIdentifier=r,this.location=e.Location.wrap(t),this.history.replace(this.location,this.restorationIdentifier)},r.prototype.historyPoppedToLocationWithRestorationIdentifier=function(t,r){var n;return this.restorationIdentifier=r,this.enabled?(n=this.getRestorationDataForIdentifier(this.restorationIdentifier),this.startVisit(t,"restore",{restorationIdentifier:this.restorationIdentifier,restorationData:n,historyChanged:!0}),this.location=e.Location.wrap(t)):this.adapter.pageInvalidated()},r.prototype.getCachedSnapshotForLocation=function(t){var e;return null!=(e=this.cache.get(t))?e.clone():void 0},r.prototype.shouldCacheSnapshot=function(){return this.view.getSnapshot().isCacheable();
 },r.prototype.cacheSnapshot=function(){var t,r;return this.shouldCacheSnapshot()?(this.notifyApplicationBeforeCachingSnapshot(),r=this.view.getSnapshot(),t=this.lastRenderedLocation,e.defer(function(e){return function(){return e.cache.put(t,r.clone())}}(this))):void 0},r.prototype.scrollToAnchor=function(t){var e;return(e=this.view.getElementForAnchor(t))?this.scrollToElement(e):this.scrollToPosition({x:0,y:0})},r.prototype.scrollToElement=function(t){return this.scrollManager.scrollToElement(t)},r.prototype.scrollToPosition=function(t){return this.scrollManager.scrollToPosition(t)},r.prototype.scrollPositionChanged=function(t){var e;return e=this.getCurrentRestorationData(),e.scrollPosition=t},r.prototype.render=function(t,e){return this.view.render(t,e)},r.prototype.viewInvalidated=function(){return this.adapter.pageInvalidated()},r.prototype.viewWillRender=function(t){return this.notifyApplicationBeforeRender(t)},r.prototype.viewRendered=function(){return this.lastRenderedLocation=this.currentVisit.location,this.notifyApplicationAfterRender()},r.prototype.pageLoaded=function(){return this.lastRenderedLocation=this.location,this.notifyApplicationAfterPageLoad()},r.prototype.clickCaptured=function(){return removeEventListener("click",this.clickBubbled,!1),addEventListener("click",this.clickBubbled,!1)},r.prototype.clickBubbled=function(t){var e,r,n;return this.enabled&&this.clickEventIsSignificant(t)&&(r=this.getVisitableLinkForNode(t.target))&&(n=this.getVisitableLocationForLink(r))&&this.applicationAllowsFollowingLinkToLocation(r,n)?(t.preventDefault(),e=this.getActionForLink(r),this.visit(n,{action:e})):void 0},r.prototype.applicationAllowsFollowingLinkToLocation=function(t,e){var r;return r=this.notifyApplicationAfterClickingLinkToLocation(t,e),!r.defaultPrevented},r.prototype.applicationAllowsVisitingLocation=function(t){var e;return e=this.notifyApplicationBeforeVisitingLocation(t),!e.defaultPrevented},r.prototype.notifyApplicationAfterClickingLinkToLocation=function(t,r){return e.dispatch("turbolinks:click",{target:t,data:{url:r.absoluteURL},cancelable:!0})},r.prototype.notifyApplicationBeforeVisitingLocation=function(t){return e.dispatch("turbolinks:before-visit",{data:{url:t.absoluteURL},cancelable:!0})},r.prototype.notifyApplicationAfterVisitingLocation=function(t){return e.dispatch("turbolinks:visit",{data:{url:t.absoluteURL}})},r.prototype.notifyApplicationBeforeCachingSnapshot=function(){return e.dispatch("turbolinks:before-cache")},r.prototype.notifyApplicationBeforeRender=function(t){return e.dispatch("turbolinks:before-render",{data:{newBody:t}})},r.prototype.notifyApplicationAfterRender=function(){return e.dispatch("turbolinks:render")},r.prototype.notifyApplicationAfterPageLoad=function(t){return null==t&&(t={}),e.dispatch("turbolinks:load",{data:{url:this.location.absoluteURL,timing:t}})},r.prototype.startVisit=function(t,e,r){var n;return null!=(n=this.currentVisit)&&n.cancel(),this.currentVisit=this.createVisit(t,e,r),this.currentVisit.start(),this.notifyApplicationAfterVisitingLocation(t)},r.prototype.createVisit=function(t,r,n){var o,i,s,a,u;return i=null!=n?n:{},a=i.restorationIdentifier,s=i.restorationData,o=i.historyChanged,u=new e.Visit(this,t,r),u.restorationIdentifier=null!=a?a:e.uuid(),u.restorationData=e.copyObject(s),u.historyChanged=o,u.referrer=this.location,u},r.prototype.visitCompleted=function(t){return this.notifyApplicationAfterPageLoad(t.getTimingMetrics())},r.prototype.clickEventIsSignificant=function(t){return!(t.defaultPrevented||t.target.isContentEditable||t.which>1||t.altKey||t.ctrlKey||t.metaKey||t.shiftKey)},r.prototype.getVisitableLinkForNode=function(t){return this.nodeIsVisitable(t)?e.closest(t,"a[href]:not([target]):not([download])"):void 0},r.prototype.getVisitableLocationForLink=function(t){var r;return r=new e.Location(t.getAttribute("href")),this.locationIsVisitable(r)?r:void 0},r.prototype.getActionForLink=function(t){var e;return null!=(e=t.getAttribute("data-turbolinks-action"))?e:"advance"},r.prototype.nodeIsVisitable=function(t){var r;return(r=e.closest(t,"[data-turbolinks]"))?"false"!==r.getAttribute("data-turbolinks"):!0},r.prototype.locationIsVisitable=function(t){return t.isPrefixedBy(this.view.getRootLocation())&&t.isHTML()},r.prototype.getCurrentRestorationData=function(){return this.getRestorationDataForIdentifier(this.restorationIdentifier)},r.prototype.getRestorationDataForIdentifier=function(t){var e;return null!=(e=this.restorationData)[t]?e[t]:e[t]={}},r}()}.call(this),function(){!function(){var t,e;if((t=e=document.currentScript)&&!e.hasAttribute("data-turbolinks-suppress-warning"))for(;t=t.parentNode;)if(t===document.body)return console.warn("You are loading Turbolinks from a <script> element inside the <body> element. This is probably not what you meant to do!\n\nLoad your application\u2019s JavaScript bundle inside the <head> element instead. <script> elements in <body> are evaluated with each page change.\n\nFor more information, see: https://github.com/turbolinks/turbolinks#working-with-script-elements\n\n\u2014\u2014\nSuppress this warning by adding a `data-turbolinks-suppress-warning` attribute to: %s",e.outerHTML)}()}.call(this),function(){var t,r,n;e.start=function(){return r()?(null==e.controller&&(e.controller=t()),e.controller.start()):void 0},r=function(){return null==window.Turbolinks&&(window.Turbolinks=e),n()},t=function(){var t;return t=new e.Controller,t.adapter=new e.BrowserAdapter(t),t},n=function(){return window.Turbolinks===e},n()&&e.start()}.call(this)}).call(this),"object"==typeof module&&module.exports?module.exports=e:"function"==typeof define&&define.amd&&define(e)}).call(this);
-/*! cash-dom 1.3.5, https://github.com/kenwheeler/cash @license MIT */
+/*!
+ * Materialize v1.0.0 (http://materializecss.com)
+ * Copyright 2014-2017 Materialize
+ * MIT License (https://raw.githubusercontent.com/Dogfalo/materialize/master/LICENSE)
+ */
 
+var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+/*! cash-dom 1.3.5, https://github.com/kenwheeler/cash @license MIT */
 (function (factory) {
   window.cash = factory();
 })(function () {
@@ -12560,10 +12020,7 @@ Copyright © 2018 Basecamp, LLC
 
   return cash;
 });
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
+;
 var Component = function () {
   /**
    * Generic constructor for all components
@@ -12598,7 +12055,7 @@ var Component = function () {
 
 
   _createClass(Component, null, [{
-    key: 'init',
+    key: "init",
     value: function init(classDef, els, options) {
       var instances = null;
       if (els instanceof Element) {
@@ -12617,7 +12074,8 @@ var Component = function () {
 
   return Component;
 }();
-// Required for Meteor package, the use of window prevents export by Meteor
+
+; // Required for Meteor package, the use of window prevents export by Meteor
 (function (window) {
   if (window.Package) {
     M = {};
@@ -12714,7 +12172,7 @@ M.initializeJqueryWrapper = function (plugin, pluginName, classRef) {
     }
 
     // Return error if an unrecognized  method name is passed in
-    jQuery.error('Method ' + methodOrOptions + ' does not exist on jQuery.' + pluginName);
+    jQuery.error("Method " + methodOrOptions + " does not exist on jQuery." + pluginName);
   };
 };
 
@@ -13025,12 +12483,11 @@ M.throttle = function (func, wait, options) {
     return result;
   };
 };
-/*
- v2.2.0
- 2017 Julian Garnier
- Released under the MIT license
-*/
-
+; /*
+  v2.2.0
+  2017 Julian Garnier
+  Released under the MIT license
+  */
 var $jscomp = { scope: {} };$jscomp.defineProperty = "function" == typeof Object.defineProperties ? Object.defineProperty : function (e, r, p) {
   if (p.get || p.set) throw new TypeError("ES3 does not support getters and setters.");e != Array.prototype && e != Object.prototype && (e[r] = p.value);
 };$jscomp.getGlobal = function (e) {
@@ -13443,17 +12900,7 @@ $jscomp.polyfill = function (e, r, p, m) {
     return Math.floor(Math.random() * (c - a + 1)) + a;
   };return q;
 });
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -13483,9 +12930,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Collapsible(el, options) {
       _classCallCheck(this, Collapsible);
 
-      var _this = _possibleConstructorReturn(this, (Collapsible.__proto__ || Object.getPrototypeOf(Collapsible)).call(this, Collapsible, el, options));
+      var _this3 = _possibleConstructorReturn(this, (Collapsible.__proto__ || Object.getPrototypeOf(Collapsible)).call(this, Collapsible, el, options));
 
-      _this.el.M_Collapsible = _this;
+      _this3.el.M_Collapsible = _this3;
 
       /**
        * Options for the collapsible
@@ -13498,28 +12945,28 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Number} inDuration - Transition in duration in milliseconds.
        * @prop {Number} outDuration - Transition duration in milliseconds.
        */
-      _this.options = $.extend({}, Collapsible.defaults, options);
+      _this3.options = $.extend({}, Collapsible.defaults, options);
 
       // Setup tab indices
-      _this.$headers = _this.$el.children('li').children('.collapsible-header');
-      _this.$headers.attr('tabindex', 0);
+      _this3.$headers = _this3.$el.children('li').children('.collapsible-header');
+      _this3.$headers.attr('tabindex', 0);
 
-      _this._setupEventHandlers();
+      _this3._setupEventHandlers();
 
       // Open first active
-      var $activeBodies = _this.$el.children('li.active').children('.collapsible-body');
-      if (_this.options.accordion) {
+      var $activeBodies = _this3.$el.children('li.active').children('.collapsible-body');
+      if (_this3.options.accordion) {
         // Handle Accordion
         $activeBodies.first().css('display', 'block');
       } else {
         // Handle Expandables
         $activeBodies.css('display', 'block');
       }
-      return _this;
+      return _this3;
     }
 
     _createClass(Collapsible, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -13535,15 +12982,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
-        var _this2 = this;
+        var _this4 = this;
 
         this._handleCollapsibleClickBound = this._handleCollapsibleClick.bind(this);
         this._handleCollapsibleKeydownBound = this._handleCollapsibleKeydown.bind(this);
         this.el.addEventListener('click', this._handleCollapsibleClickBound);
         this.$headers.each(function (header) {
-          header.addEventListener('keydown', _this2._handleCollapsibleKeydownBound);
+          header.addEventListener('keydown', _this4._handleCollapsibleKeydownBound);
         });
       }
 
@@ -13552,13 +12999,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
-        var _this3 = this;
+        var _this5 = this;
 
         this.el.removeEventListener('click', this._handleCollapsibleClickBound);
         this.$headers.each(function (header) {
-          header.removeEventListener('keydown', _this3._handleCollapsibleKeydownBound);
+          header.removeEventListener('keydown', _this5._handleCollapsibleKeydownBound);
         });
       }
 
@@ -13568,7 +13015,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCollapsibleClick',
+      key: "_handleCollapsibleClick",
       value: function _handleCollapsibleClick(e) {
         var $header = $(e.target).closest('.collapsible-header');
         if (e.target && $header.length) {
@@ -13594,7 +13041,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCollapsibleKeydown',
+      key: "_handleCollapsibleKeydown",
       value: function _handleCollapsibleKeydown(e) {
         if (e.keyCode === 13) {
           this._handleCollapsibleClickBound(e);
@@ -13607,9 +13054,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn(index) {
-        var _this4 = this;
+        var _this6 = this;
 
         var $collapsibleLi = this.$el.children('li').eq(index);
         if ($collapsibleLi.length) {
@@ -13648,8 +13095,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               });
 
               // onOpenEnd callback
-              if (typeof _this4.options.onOpenEnd === 'function') {
-                _this4.options.onOpenEnd.call(_this4, $collapsibleLi[0]);
+              if (typeof _this6.options.onOpenEnd === 'function') {
+                _this6.options.onOpenEnd.call(_this6, $collapsibleLi[0]);
               }
             }
           });
@@ -13662,9 +13109,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateOut',
+      key: "_animateOut",
       value: function _animateOut(index) {
-        var _this5 = this;
+        var _this7 = this;
 
         var $collapsibleLi = this.$el.children('li').eq(index);
         if ($collapsibleLi.length) {
@@ -13687,8 +13134,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               });
 
               // onCloseEnd callback
-              if (typeof _this5.options.onCloseEnd === 'function') {
-                _this5.options.onCloseEnd.call(_this5, $collapsibleLi[0]);
+              if (typeof _this7.options.onCloseEnd === 'function') {
+                _this7.options.onCloseEnd.call(_this7, $collapsibleLi[0]);
               }
             }
           });
@@ -13701,9 +13148,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open(index) {
-        var _this6 = this;
+        var _this8 = this;
 
         var $collapsibleLi = this.$el.children('li').eq(index);
         if ($collapsibleLi.length && !$collapsibleLi[0].classList.contains('active')) {
@@ -13718,7 +13165,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             var $activeLis = this.$el.children('li.active');
             $activeLis.each(function (el) {
               var index = $collapsibleLis.index($(el));
-              _this6.close(index);
+              _this8.close(index);
             });
           }
 
@@ -13734,7 +13181,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close(index) {
         var $collapsibleLi = this.$el.children('li').eq(index);
         if ($collapsibleLi.length && $collapsibleLi[0].classList.contains('active')) {
@@ -13749,9 +13196,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Collapsible.__proto__ || Object.getPrototypeOf(Collapsible), 'init', this).call(this, this, els, options);
+        return _get(Collapsible.__proto__ || Object.getPrototypeOf(Collapsible), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -13759,13 +13206,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Collapsible;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -13780,17 +13227,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Collapsible, 'collapsible', 'M_Collapsible');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -13814,20 +13251,20 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    * @class
    */
 
-  var Dropdown = function (_Component) {
-    _inherits(Dropdown, _Component);
+  var Dropdown = function (_Component2) {
+    _inherits(Dropdown, _Component2);
 
     function Dropdown(el, options) {
       _classCallCheck(this, Dropdown);
 
-      var _this = _possibleConstructorReturn(this, (Dropdown.__proto__ || Object.getPrototypeOf(Dropdown)).call(this, Dropdown, el, options));
+      var _this9 = _possibleConstructorReturn(this, (Dropdown.__proto__ || Object.getPrototypeOf(Dropdown)).call(this, Dropdown, el, options));
 
-      _this.el.M_Dropdown = _this;
-      Dropdown._dropdowns.push(_this);
+      _this9.el.M_Dropdown = _this9;
+      Dropdown._dropdowns.push(_this9);
 
-      _this.id = M.getIdFromTrigger(el);
-      _this.dropdownEl = document.getElementById(_this.id);
-      _this.$dropdownEl = $(_this.dropdownEl);
+      _this9.id = M.getIdFromTrigger(el);
+      _this9.dropdownEl = document.getElementById(_this9.id);
+      _this9.$dropdownEl = $(_this9.dropdownEl);
 
       /**
        * Options for the dropdown
@@ -13846,49 +13283,49 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Function} onCloseStart - Function called when dropdown starts closing
        * @prop {Function} onCloseEnd - Function called when dropdown finishes closing
        */
-      _this.options = $.extend({}, Dropdown.defaults, options);
+      _this9.options = $.extend({}, Dropdown.defaults, options);
 
       /**
        * Describes open/close state of dropdown
        * @type {Boolean}
        */
-      _this.isOpen = false;
+      _this9.isOpen = false;
 
       /**
        * Describes if dropdown content is scrollable
        * @type {Boolean}
        */
-      _this.isScrollable = false;
+      _this9.isScrollable = false;
 
       /**
        * Describes if touch moving on dropdown content
        * @type {Boolean}
        */
-      _this.isTouchMoving = false;
+      _this9.isTouchMoving = false;
 
-      _this.focusedIndex = -1;
-      _this.filterQuery = [];
+      _this9.focusedIndex = -1;
+      _this9.filterQuery = [];
 
       // Move dropdown-content after dropdown-trigger
-      if (!!_this.options.container) {
-        $(_this.options.container).append(_this.dropdownEl);
+      if (!!_this9.options.container) {
+        $(_this9.options.container).append(_this9.dropdownEl);
       } else {
-        _this.$el.after(_this.dropdownEl);
+        _this9.$el.after(_this9.dropdownEl);
       }
 
-      _this._makeDropdownFocusable();
-      _this._resetFilterQueryBound = _this._resetFilterQuery.bind(_this);
-      _this._handleDocumentClickBound = _this._handleDocumentClick.bind(_this);
-      _this._handleDocumentTouchmoveBound = _this._handleDocumentTouchmove.bind(_this);
-      _this._handleDropdownClickBound = _this._handleDropdownClick.bind(_this);
-      _this._handleDropdownKeydownBound = _this._handleDropdownKeydown.bind(_this);
-      _this._handleTriggerKeydownBound = _this._handleTriggerKeydown.bind(_this);
-      _this._setupEventHandlers();
-      return _this;
+      _this9._makeDropdownFocusable();
+      _this9._resetFilterQueryBound = _this9._resetFilterQuery.bind(_this9);
+      _this9._handleDocumentClickBound = _this9._handleDocumentClick.bind(_this9);
+      _this9._handleDocumentTouchmoveBound = _this9._handleDocumentTouchmove.bind(_this9);
+      _this9._handleDropdownClickBound = _this9._handleDropdownClick.bind(_this9);
+      _this9._handleDropdownKeydownBound = _this9._handleDropdownKeydown.bind(_this9);
+      _this9._handleTriggerKeydownBound = _this9._handleTriggerKeydown.bind(_this9);
+      _this9._setupEventHandlers();
+      return _this9;
     }
 
     _createClass(Dropdown, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -13906,7 +13343,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         // Trigger keydown handler
         this.el.addEventListener('keydown', this._handleTriggerKeydownBound);
@@ -13934,7 +13371,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('keydown', this._handleTriggerKeydownBound);
         this.dropdownEl.removeEventListener('click', this._handleDropdownClickBound);
@@ -13948,7 +13385,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_setupTemporaryEventHandlers',
+      key: "_setupTemporaryEventHandlers",
       value: function _setupTemporaryEventHandlers() {
         // Use capture phase event handler to prevent click
         document.body.addEventListener('click', this._handleDocumentClickBound, true);
@@ -13957,7 +13394,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.dropdownEl.addEventListener('keydown', this._handleDropdownKeydownBound);
       }
     }, {
-      key: '_removeTemporaryEventHandlers',
+      key: "_removeTemporaryEventHandlers",
       value: function _removeTemporaryEventHandlers() {
         // Use capture phase event handler to prevent click
         document.body.removeEventListener('click', this._handleDocumentClickBound, true);
@@ -13966,18 +13403,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.dropdownEl.removeEventListener('keydown', this._handleDropdownKeydownBound);
       }
     }, {
-      key: '_handleClick',
+      key: "_handleClick",
       value: function _handleClick(e) {
         e.preventDefault();
         this.open();
       }
     }, {
-      key: '_handleMouseEnter',
+      key: "_handleMouseEnter",
       value: function _handleMouseEnter() {
         this.open();
       }
     }, {
-      key: '_handleMouseLeave',
+      key: "_handleMouseLeave",
       value: function _handleMouseLeave(e) {
         var toEl = e.toElement || e.relatedTarget;
         var leaveToDropdownContent = !!$(toEl).closest('.dropdown-content').length;
@@ -13994,25 +13431,25 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleDocumentClick',
+      key: "_handleDocumentClick",
       value: function _handleDocumentClick(e) {
-        var _this2 = this;
+        var _this10 = this;
 
         var $target = $(e.target);
         if (this.options.closeOnClick && $target.closest('.dropdown-content').length && !this.isTouchMoving) {
           // isTouchMoving to check if scrolling on mobile.
           setTimeout(function () {
-            _this2.close();
+            _this10.close();
           }, 0);
         } else if ($target.closest('.dropdown-trigger').length || !$target.closest('.dropdown-content').length) {
           setTimeout(function () {
-            _this2.close();
+            _this10.close();
           }, 0);
         }
         this.isTouchMoving = false;
       }
     }, {
-      key: '_handleTriggerKeydown',
+      key: "_handleTriggerKeydown",
       value: function _handleTriggerKeydown(e) {
         // ARROW DOWN OR ENTER WHEN SELECT IS CLOSED - open Dropdown
         if ((e.which === M.keys.ARROW_DOWN || e.which === M.keys.ENTER) && !this.isOpen) {
@@ -14027,7 +13464,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDocumentTouchmove',
+      key: "_handleDocumentTouchmove",
       value: function _handleDocumentTouchmove(e) {
         var $target = $(e.target);
         if ($target.closest('.dropdown-content').length) {
@@ -14041,7 +13478,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDropdownClick',
+      key: "_handleDropdownClick",
       value: function _handleDropdownClick(e) {
         // onItemClick callback
         if (typeof this.options.onItemClick === 'function') {
@@ -14056,7 +13493,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDropdownKeydown',
+      key: "_handleDropdownKeydown",
       value: function _handleDropdownKeydown(e) {
         if (e.which === M.keys.TAB) {
           e.preventDefault();
@@ -14126,12 +13563,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_resetFilterQuery',
+      key: "_resetFilterQuery",
       value: function _resetFilterQuery() {
         this.filterQuery = [];
       }
     }, {
-      key: '_resetDropdownStyles',
+      key: "_resetDropdownStyles",
       value: function _resetDropdownStyles() {
         this.$dropdownEl.css({
           display: '',
@@ -14145,7 +13582,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_makeDropdownFocusable',
+      key: "_makeDropdownFocusable",
       value: function _makeDropdownFocusable() {
         // Needed for arrow key navigation
         this.dropdownEl.tabIndex = 0;
@@ -14158,14 +13595,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_focusFocusedItem',
+      key: "_focusFocusedItem",
       value: function _focusFocusedItem() {
         if (this.focusedIndex >= 0 && this.focusedIndex < this.dropdownEl.children.length && this.options.autoFocus) {
           this.dropdownEl.children[this.focusedIndex].focus();
         }
       }
     }, {
-      key: '_getDropdownPosition',
+      key: "_getDropdownPosition",
       value: function _getDropdownPosition() {
         var offsetParentBRect = this.el.offsetParent.getBoundingClientRect();
         var triggerBRect = this.el.getBoundingClientRect();
@@ -14251,9 +13688,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn() {
-        var _this3 = this;
+        var _this11 = this;
 
         anim.remove(this.dropdownEl);
         anim({
@@ -14267,13 +13704,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.inDuration,
           easing: 'easeOutQuint',
           complete: function (anim) {
-            if (_this3.options.autoFocus) {
-              _this3.dropdownEl.focus();
+            if (_this11.options.autoFocus) {
+              _this11.dropdownEl.focus();
             }
 
             // onOpenEnd callback
-            if (typeof _this3.options.onOpenEnd === 'function') {
-              _this3.options.onOpenEnd.call(_this3, _this3.el);
+            if (typeof _this11.options.onOpenEnd === 'function') {
+              _this11.options.onOpenEnd.call(_this11, _this11.el);
             }
           }
         });
@@ -14284,9 +13721,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateOut',
+      key: "_animateOut",
       value: function _animateOut() {
-        var _this4 = this;
+        var _this12 = this;
 
         anim.remove(this.dropdownEl);
         anim({
@@ -14300,11 +13737,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.outDuration,
           easing: 'easeOutQuint',
           complete: function (anim) {
-            _this4._resetDropdownStyles();
+            _this12._resetDropdownStyles();
 
             // onCloseEnd callback
-            if (typeof _this4.options.onCloseEnd === 'function') {
-              _this4.options.onCloseEnd.call(_this4, _this4.el);
+            if (typeof _this12.options.onCloseEnd === 'function') {
+              _this12.options.onCloseEnd.call(_this12, _this12.el);
             }
           }
         });
@@ -14315,7 +13752,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_placeDropdown',
+      key: "_placeDropdown",
       value: function _placeDropdown() {
         // Set width before calculating positionInfo
         var idealWidth = this.options.constrainWidth ? this.el.getBoundingClientRect().width : this.dropdownEl.getBoundingClientRect().width;
@@ -14326,7 +13763,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.dropdownEl.style.top = positionInfo.y + 'px';
         this.dropdownEl.style.height = positionInfo.height + 'px';
         this.dropdownEl.style.width = positionInfo.width + 'px';
-        this.dropdownEl.style.transformOrigin = (positionInfo.horizontalAlignment === 'left' ? '0' : '100%') + ' ' + (positionInfo.verticalAlignment === 'top' ? '0' : '100%');
+        this.dropdownEl.style.transformOrigin = (positionInfo.horizontalAlignment === 'left' ? '0' : '100%') + " " + (positionInfo.verticalAlignment === 'top' ? '0' : '100%');
       }
 
       /**
@@ -14334,7 +13771,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen) {
           return;
@@ -14360,7 +13797,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -14386,7 +13823,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'recalculateDimensions',
+      key: "recalculateDimensions",
       value: function recalculateDimensions() {
         if (this.isOpen) {
           this.$dropdownEl.css({
@@ -14400,9 +13837,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Dropdown.__proto__ || Object.getPrototypeOf(Dropdown), 'init', this).call(this, this, els, options);
+        return _get(Dropdown.__proto__ || Object.getPrototypeOf(Dropdown), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -14410,13 +13847,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Dropdown;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -14439,17 +13876,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Dropdown, 'dropdown', 'M_Dropdown');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -14471,8 +13898,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Modal = function (_Component) {
-    _inherits(Modal, _Component);
+  var Modal = function (_Component3) {
+    _inherits(Modal, _Component3);
 
     /**
      * Construct Modal instance and set up overlay
@@ -14483,9 +13910,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Modal(el, options) {
       _classCallCheck(this, Modal);
 
-      var _this = _possibleConstructorReturn(this, (Modal.__proto__ || Object.getPrototypeOf(Modal)).call(this, Modal, el, options));
+      var _this13 = _possibleConstructorReturn(this, (Modal.__proto__ || Object.getPrototypeOf(Modal)).call(this, Modal, el, options));
 
-      _this.el.M_Modal = _this;
+      _this13.el.M_Modal = _this13;
 
       /**
        * Options for the modal
@@ -14501,27 +13928,27 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {String} [startingTop='4%'] - startingTop
        * @prop {String} [endingTop='10%'] - endingTop
        */
-      _this.options = $.extend({}, Modal.defaults, options);
+      _this13.options = $.extend({}, Modal.defaults, options);
 
       /**
        * Describes open/close state of modal
        * @type {Boolean}
        */
-      _this.isOpen = false;
+      _this13.isOpen = false;
 
-      _this.id = _this.$el.attr('id');
-      _this._openingTrigger = undefined;
-      _this.$overlay = $('<div class="modal-overlay"></div>');
-      _this.el.tabIndex = 0;
-      _this._nthModalOpened = 0;
+      _this13.id = _this13.$el.attr('id');
+      _this13._openingTrigger = undefined;
+      _this13.$overlay = $('<div class="modal-overlay"></div>');
+      _this13.el.tabIndex = 0;
+      _this13._nthModalOpened = 0;
 
       Modal._count++;
-      _this._setupEventHandlers();
-      return _this;
+      _this13._setupEventHandlers();
+      return _this13;
     }
 
     _createClass(Modal, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -14540,7 +13967,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleOverlayClickBound = this._handleOverlayClick.bind(this);
         this._handleModalCloseClickBound = this._handleModalCloseClick.bind(this);
@@ -14557,7 +13984,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         if (Modal._count === 0) {
           document.body.removeEventListener('click', this._handleTriggerClick);
@@ -14572,7 +13999,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleTriggerClick',
+      key: "_handleTriggerClick",
       value: function _handleTriggerClick(e) {
         var $trigger = $(e.target).closest('.modal-trigger');
         if ($trigger.length) {
@@ -14590,7 +14017,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleOverlayClick',
+      key: "_handleOverlayClick",
       value: function _handleOverlayClick() {
         if (this.options.dismissible) {
           this.close();
@@ -14603,7 +14030,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleModalCloseClick',
+      key: "_handleModalCloseClick",
       value: function _handleModalCloseClick(e) {
         var $closeTrigger = $(e.target).closest('.modal-close');
         if ($closeTrigger.length) {
@@ -14617,7 +14044,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleKeydown',
+      key: "_handleKeydown",
       value: function _handleKeydown(e) {
         // ESC key
         if (e.keyCode === 27 && this.options.dismissible) {
@@ -14631,7 +14058,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleFocus',
+      key: "_handleFocus",
       value: function _handleFocus(e) {
         // Only trap focus if this modal is the last model opened (prevents loops in nested modals).
         if (!this.el.contains(e.target) && this._nthModalOpened === Modal._modalsOpen) {
@@ -14644,9 +14071,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn() {
-        var _this2 = this;
+        var _this14 = this;
 
         // Set initial styles
         $.extend(this.el.style, {
@@ -14673,8 +14100,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           easing: 'easeOutCubic',
           // Handle modal onOpenEnd callback
           complete: function () {
-            if (typeof _this2.options.onOpenEnd === 'function') {
-              _this2.options.onOpenEnd.call(_this2, _this2.el, _this2._openingTrigger);
+            if (typeof _this14.options.onOpenEnd === 'function') {
+              _this14.options.onOpenEnd.call(_this14, _this14.el, _this14._openingTrigger);
             }
           }
         };
@@ -14704,9 +14131,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateOut',
+      key: "_animateOut",
       value: function _animateOut() {
-        var _this3 = this;
+        var _this15 = this;
 
         // Animate overlay
         anim({
@@ -14723,12 +14150,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           easing: 'easeOutCubic',
           // Handle modal ready callback
           complete: function () {
-            _this3.el.style.display = 'none';
-            _this3.$overlay.remove();
+            _this15.el.style.display = 'none';
+            _this15.$overlay.remove();
 
             // Call onCloseEnd callback
-            if (typeof _this3.options.onCloseEnd === 'function') {
-              _this3.options.onCloseEnd.call(_this3, _this3.el);
+            if (typeof _this15.options.onCloseEnd === 'function') {
+              _this15.options.onCloseEnd.call(_this15, _this15.el);
             }
           }
         };
@@ -14759,7 +14186,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open($trigger) {
         if (this.isOpen) {
           return;
@@ -14810,7 +14237,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -14843,9 +14270,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return this;
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Modal.__proto__ || Object.getPrototypeOf(Modal), 'init', this).call(this, this, els, options);
+        return _get(Modal.__proto__ || Object.getPrototypeOf(Modal), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -14853,13 +14280,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Modal;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -14888,17 +14315,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Modal, 'modal', 'M_Modal');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -14915,8 +14332,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Materialbox = function (_Component) {
-    _inherits(Materialbox, _Component);
+  var Materialbox = function (_Component4) {
+    _inherits(Materialbox, _Component4);
 
     /**
      * Construct Materialbox instance
@@ -14927,9 +14344,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Materialbox(el, options) {
       _classCallCheck(this, Materialbox);
 
-      var _this = _possibleConstructorReturn(this, (Materialbox.__proto__ || Object.getPrototypeOf(Materialbox)).call(this, Materialbox, el, options));
+      var _this16 = _possibleConstructorReturn(this, (Materialbox.__proto__ || Object.getPrototypeOf(Materialbox)).call(this, Materialbox, el, options));
 
-      _this.el.M_Materialbox = _this;
+      _this16.el.M_Materialbox = _this16;
 
       /**
        * Options for the modal
@@ -14941,26 +14358,26 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Function} onCloseStart - Callback function called before materialbox is closed
        * @prop {Function} onCloseEnd - Callback function called after materialbox is closed
        */
-      _this.options = $.extend({}, Materialbox.defaults, options);
+      _this16.options = $.extend({}, Materialbox.defaults, options);
 
-      _this.overlayActive = false;
-      _this.doneAnimating = true;
-      _this.placeholder = $('<div></div>').addClass('material-placeholder');
-      _this.originalWidth = 0;
-      _this.originalHeight = 0;
-      _this.originInlineStyles = _this.$el.attr('style');
-      _this.caption = _this.el.getAttribute('data-caption') || '';
+      _this16.overlayActive = false;
+      _this16.doneAnimating = true;
+      _this16.placeholder = $('<div></div>').addClass('material-placeholder');
+      _this16.originalWidth = 0;
+      _this16.originalHeight = 0;
+      _this16.originInlineStyles = _this16.$el.attr('style');
+      _this16.caption = _this16.el.getAttribute('data-caption') || '';
 
       // Wrap
-      _this.$el.before(_this.placeholder);
-      _this.placeholder.append(_this.$el);
+      _this16.$el.before(_this16.placeholder);
+      _this16.placeholder.append(_this16.$el);
 
-      _this._setupEventHandlers();
-      return _this;
+      _this16._setupEventHandlers();
+      return _this16;
     }
 
     _createClass(Materialbox, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -14981,7 +14398,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleMaterialboxClickBound = this._handleMaterialboxClick.bind(this);
         this.el.addEventListener('click', this._handleMaterialboxClickBound);
@@ -14992,7 +14409,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('click', this._handleMaterialboxClickBound);
       }
@@ -15003,7 +14420,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleMaterialboxClick',
+      key: "_handleMaterialboxClick",
       value: function _handleMaterialboxClick(e) {
         // If already modal, return to original
         if (this.doneAnimating === false || this.overlayActive && this.doneAnimating) {
@@ -15018,7 +14435,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowScroll',
+      key: "_handleWindowScroll",
       value: function _handleWindowScroll() {
         if (this.overlayActive) {
           this.close();
@@ -15030,7 +14447,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowResize',
+      key: "_handleWindowResize",
       value: function _handleWindowResize() {
         if (this.overlayActive) {
           this.close();
@@ -15043,7 +14460,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowEscape',
+      key: "_handleWindowEscape",
       value: function _handleWindowEscape(e) {
         // ESC key
         if (e.keyCode === 27 && this.doneAnimating && this.overlayActive) {
@@ -15056,7 +14473,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_makeAncestorsOverflowVisible',
+      key: "_makeAncestorsOverflowVisible",
       value: function _makeAncestorsOverflowVisible() {
         this.ancestorsChanged = $();
         var ancestor = this.placeholder[0].parentNode;
@@ -15079,9 +14496,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateImageIn',
+      key: "_animateImageIn",
       value: function _animateImageIn() {
-        var _this2 = this;
+        var _this17 = this;
 
         var animOptions = {
           targets: this.el,
@@ -15092,11 +14509,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.inDuration,
           easing: 'easeOutQuad',
           complete: function () {
-            _this2.doneAnimating = true;
+            _this17.doneAnimating = true;
 
             // onOpenEnd callback
-            if (typeof _this2.options.onOpenEnd === 'function') {
-              _this2.options.onOpenEnd.call(_this2, _this2.el);
+            if (typeof _this17.options.onOpenEnd === 'function') {
+              _this17.options.onOpenEnd.call(_this17, _this17.el);
             }
           }
         };
@@ -15119,9 +14536,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateImageOut',
+      key: "_animateImageOut",
       value: function _animateImageOut() {
-        var _this3 = this;
+        var _this18 = this;
 
         var animOptions = {
           targets: this.el,
@@ -15132,7 +14549,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.outDuration,
           easing: 'easeOutQuad',
           complete: function () {
-            _this3.placeholder.css({
+            _this18.placeholder.css({
               height: '',
               width: '',
               position: '',
@@ -15141,28 +14558,28 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             });
 
             // Revert to width or height attribute
-            if (_this3.attrWidth) {
-              _this3.$el.attr('width', _this3.attrWidth);
+            if (_this18.attrWidth) {
+              _this18.$el.attr('width', _this18.attrWidth);
             }
-            if (_this3.attrHeight) {
-              _this3.$el.attr('height', _this3.attrHeight);
+            if (_this18.attrHeight) {
+              _this18.$el.attr('height', _this18.attrHeight);
             }
 
-            _this3.$el.removeAttr('style');
-            _this3.originInlineStyles && _this3.$el.attr('style', _this3.originInlineStyles);
+            _this18.$el.removeAttr('style');
+            _this18.originInlineStyles && _this18.$el.attr('style', _this18.originInlineStyles);
 
             // Remove class
-            _this3.$el.removeClass('active');
-            _this3.doneAnimating = true;
+            _this18.$el.removeClass('active');
+            _this18.doneAnimating = true;
 
             // Remove overflow overrides on ancestors
-            if (_this3.ancestorsChanged.length) {
-              _this3.ancestorsChanged.css('overflow', '');
+            if (_this18.ancestorsChanged.length) {
+              _this18.ancestorsChanged.css('overflow', '');
             }
 
             // onCloseEnd callback
-            if (typeof _this3.options.onCloseEnd === 'function') {
-              _this3.options.onCloseEnd.call(_this3, _this3.el);
+            if (typeof _this18.options.onCloseEnd === 'function') {
+              _this18.options.onCloseEnd.call(_this18, _this18.el);
             }
           }
         };
@@ -15175,7 +14592,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_updateVars',
+      key: "_updateVars",
       value: function _updateVars() {
         this.windowWidth = window.innerWidth;
         this.windowHeight = window.innerHeight;
@@ -15187,9 +14604,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
-        var _this4 = this;
+        var _this19 = this;
 
         this._updateVars();
         this.originalWidth = this.el.getBoundingClientRect().width;
@@ -15239,8 +14656,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.$overlay = $('<div id="materialbox-overlay"></div>').css({
           opacity: 0
         }).one('click', function () {
-          if (_this4.doneAnimating) {
-            _this4.close();
+          if (_this19.doneAnimating) {
+            _this19.close();
           }
         });
 
@@ -15319,9 +14736,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
-        var _this5 = this;
+        var _this20 = this;
 
         this._updateVars();
         this.doneAnimating = false;
@@ -15349,8 +14766,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.outDuration,
           easing: 'easeOutQuad',
           complete: function () {
-            _this5.overlayActive = false;
-            _this5.$overlay.remove();
+            _this20.overlayActive = false;
+            _this20.$overlay.remove();
           }
         });
 
@@ -15364,15 +14781,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             duration: this.options.outDuration,
             easing: 'easeOutQuad',
             complete: function () {
-              _this5.$photoCaption.remove();
+              _this20.$photoCaption.remove();
             }
           });
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Materialbox.__proto__ || Object.getPrototypeOf(Materialbox), 'init', this).call(this, this, els, options);
+        return _get(Materialbox.__proto__ || Object.getPrototypeOf(Materialbox), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -15380,13 +14797,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Materialbox;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -15401,57 +14818,47 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Materialbox, 'materialbox', 'M_Materialbox');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
     responsiveThreshold: 0 // breakpoint for swipeable
   };
 
-  var Parallax = function (_Component) {
-    _inherits(Parallax, _Component);
+  var Parallax = function (_Component5) {
+    _inherits(Parallax, _Component5);
 
     function Parallax(el, options) {
       _classCallCheck(this, Parallax);
 
-      var _this = _possibleConstructorReturn(this, (Parallax.__proto__ || Object.getPrototypeOf(Parallax)).call(this, Parallax, el, options));
+      var _this21 = _possibleConstructorReturn(this, (Parallax.__proto__ || Object.getPrototypeOf(Parallax)).call(this, Parallax, el, options));
 
-      _this.el.M_Parallax = _this;
+      _this21.el.M_Parallax = _this21;
 
       /**
        * Options for the Parallax
        * @member Parallax#options
        * @prop {Number} responsiveThreshold
        */
-      _this.options = $.extend({}, Parallax.defaults, options);
-      _this._enabled = window.innerWidth > _this.options.responsiveThreshold;
+      _this21.options = $.extend({}, Parallax.defaults, options);
+      _this21._enabled = window.innerWidth > _this21.options.responsiveThreshold;
 
-      _this.$img = _this.$el.find('img').first();
-      _this.$img.each(function () {
+      _this21.$img = _this21.$el.find('img').first();
+      _this21.$img.each(function () {
         var el = this;
         if (el.complete) $(el).trigger('load');
       });
 
-      _this._updateParallax();
-      _this._setupEventHandlers();
-      _this._setupStyles();
+      _this21._updateParallax();
+      _this21._setupEventHandlers();
+      _this21._setupStyles();
 
-      Parallax._parallaxes.push(_this);
-      return _this;
+      Parallax._parallaxes.push(_this21);
+      return _this21;
     }
 
     _createClass(Parallax, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -15465,7 +14872,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.$el[0].M_Parallax = undefined;
       }
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleImageLoadBound = this._handleImageLoad.bind(this);
         this.$img[0].addEventListener('load', this._handleImageLoadBound);
@@ -15479,7 +14886,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.$img[0].removeEventListener('load', this._handleImageLoadBound);
 
@@ -15489,17 +14896,17 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_setupStyles',
+      key: "_setupStyles",
       value: function _setupStyles() {
         this.$img[0].style.opacity = 1;
       }
     }, {
-      key: '_handleImageLoad',
+      key: "_handleImageLoad",
       value: function _handleImageLoad() {
         this._updateParallax();
       }
     }, {
-      key: '_updateParallax',
+      key: "_updateParallax",
       value: function _updateParallax() {
         var containerHeight = this.$el.height() > 0 ? this.el.parentNode.offsetHeight : 500;
         var imgHeight = this.$img[0].offsetHeight;
@@ -15515,13 +14922,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (!this._enabled) {
           this.$img[0].style.transform = '';
         } else if (bottom > scrollTop && top < scrollTop + windowHeight) {
-          this.$img[0].style.transform = 'translate3D(-50%, ' + parallax + 'px, 0)';
+          this.$img[0].style.transform = "translate3D(-50%, " + parallax + "px, 0)";
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Parallax.__proto__ || Object.getPrototypeOf(Parallax), 'init', this).call(this, this, els, options);
+        return _get(Parallax.__proto__ || Object.getPrototypeOf(Parallax), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -15529,13 +14936,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Parallax;
       }
     }, {
-      key: '_handleScroll',
+      key: "_handleScroll",
       value: function _handleScroll() {
         for (var i = 0; i < Parallax._parallaxes.length; i++) {
           var parallaxInstance = Parallax._parallaxes[i];
@@ -15543,7 +14950,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleWindowResize',
+      key: "_handleWindowResize",
       value: function _handleWindowResize() {
         for (var i = 0; i < Parallax._parallaxes.length; i++) {
           var parallaxInstance = Parallax._parallaxes[i];
@@ -15551,7 +14958,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -15574,17 +14981,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Parallax, 'parallax', 'M_Parallax');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -15599,8 +14996,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Tabs = function (_Component) {
-    _inherits(Tabs, _Component);
+  var Tabs = function (_Component6) {
+    _inherits(Tabs, _Component6);
 
     /**
      * Construct Tabs instance
@@ -15611,9 +15008,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Tabs(el, options) {
       _classCallCheck(this, Tabs);
 
-      var _this = _possibleConstructorReturn(this, (Tabs.__proto__ || Object.getPrototypeOf(Tabs)).call(this, Tabs, el, options));
+      var _this22 = _possibleConstructorReturn(this, (Tabs.__proto__ || Object.getPrototypeOf(Tabs)).call(this, Tabs, el, options));
 
-      _this.el.M_Tabs = _this;
+      _this22.el.M_Tabs = _this22;
 
       /**
        * Options for the Tabs
@@ -15623,30 +15020,30 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Boolean} swipeable
        * @prop {Number} responsiveThreshold
        */
-      _this.options = $.extend({}, Tabs.defaults, options);
+      _this22.options = $.extend({}, Tabs.defaults, options);
 
       // Setup
-      _this.$tabLinks = _this.$el.children('li.tab').children('a');
-      _this.index = 0;
-      _this._setupActiveTabLink();
+      _this22.$tabLinks = _this22.$el.children('li.tab').children('a');
+      _this22.index = 0;
+      _this22._setupActiveTabLink();
 
       // Setup tabs content
-      if (_this.options.swipeable) {
-        _this._setupSwipeableTabs();
+      if (_this22.options.swipeable) {
+        _this22._setupSwipeableTabs();
       } else {
-        _this._setupNormalTabs();
+        _this22._setupNormalTabs();
       }
 
       // Setup tabs indicator after content to ensure accurate widths
-      _this._setTabsAndTabWidth();
-      _this._createIndicator();
+      _this22._setTabsAndTabWidth();
+      _this22._createIndicator();
 
-      _this._setupEventHandlers();
-      return _this;
+      _this22._setupEventHandlers();
+      return _this22;
     }
 
     _createClass(Tabs, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -15670,7 +15067,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleWindowResizeBound = this._handleWindowResize.bind(this);
         window.addEventListener('resize', this._handleWindowResizeBound);
@@ -15684,7 +15081,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         window.removeEventListener('resize', this._handleWindowResizeBound);
         this.el.removeEventListener('click', this._handleTabClickBound);
@@ -15695,7 +15092,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowResize',
+      key: "_handleWindowResize",
       value: function _handleWindowResize() {
         this._setTabsAndTabWidth();
 
@@ -15711,9 +15108,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleTabClick',
+      key: "_handleTabClick",
       value: function _handleTabClick(e) {
-        var _this2 = this;
+        var _this23 = this;
 
         var tab = $(e.target).closest('li.tab');
         var tabLink = $(e.target).closest('a');
@@ -15751,8 +15148,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (this.options.swipeable) {
           if (this._tabsCarousel) {
             this._tabsCarousel.set(this.index, function () {
-              if (typeof _this2.options.onShow === 'function') {
-                _this2.options.onShow.call(_this2, _this2.$content[0]);
+              if (typeof _this23.options.onShow === 'function') {
+                _this23.options.onShow.call(_this23, _this23.$content[0]);
               }
             });
           }
@@ -15786,9 +15183,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_createIndicator',
+      key: "_createIndicator",
       value: function _createIndicator() {
-        var _this3 = this;
+        var _this24 = this;
 
         var indicator = document.createElement('li');
         indicator.classList.add('indicator');
@@ -15797,8 +15194,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._indicator = indicator;
 
         setTimeout(function () {
-          _this3._indicator.style.left = _this3._calcLeftPos(_this3.$activeTabLink) + 'px';
-          _this3._indicator.style.right = _this3._calcRightPos(_this3.$activeTabLink) + 'px';
+          _this24._indicator.style.left = _this24._calcLeftPos(_this24.$activeTabLink) + 'px';
+          _this24._indicator.style.right = _this24._calcRightPos(_this24.$activeTabLink) + 'px';
         }, 0);
       }
 
@@ -15807,7 +15204,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupActiveTabLink',
+      key: "_setupActiveTabLink",
       value: function _setupActiveTabLink() {
         // If the location.hash matches one of the links, use that as the active tab.
         this.$activeTabLink = $(this.$tabLinks.filter('[href="' + location.hash + '"]'));
@@ -15836,9 +15233,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupSwipeableTabs',
+      key: "_setupSwipeableTabs",
       value: function _setupSwipeableTabs() {
-        var _this4 = this;
+        var _this25 = this;
 
         // Change swipeable according to responsive threshold
         if (window.innerWidth > this.options.responsiveThreshold) {
@@ -15864,14 +15261,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           fullWidth: true,
           noWrap: true,
           onCycleTo: function (item) {
-            var prevIndex = _this4.index;
-            _this4.index = $(item).index();
-            _this4.$activeTabLink.removeClass('active');
-            _this4.$activeTabLink = _this4.$tabLinks.eq(_this4.index);
-            _this4.$activeTabLink.addClass('active');
-            _this4._animateIndicator(prevIndex);
-            if (typeof _this4.options.onShow === 'function') {
-              _this4.options.onShow.call(_this4, _this4.$content[0]);
+            var prevIndex = _this25.index;
+            _this25.index = $(item).index();
+            _this25.$activeTabLink.removeClass('active');
+            _this25.$activeTabLink = _this25.$tabLinks.eq(_this25.index);
+            _this25.$activeTabLink.addClass('active');
+            _this25._animateIndicator(prevIndex);
+            if (typeof _this25.options.onShow === 'function') {
+              _this25.options.onShow.call(_this25, _this25.$content[0]);
             }
           }
         });
@@ -15885,7 +15282,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_teardownSwipeableTabs',
+      key: "_teardownSwipeableTabs",
       value: function _teardownSwipeableTabs() {
         var $tabsWrapper = this._tabsCarousel.$el;
         this._tabsCarousel.destroy();
@@ -15900,7 +15297,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupNormalTabs',
+      key: "_setupNormalTabs",
       value: function _setupNormalTabs() {
         // Hide Tabs Content
         this.$tabLinks.not(this.$activeTabLink).each(function (link) {
@@ -15918,7 +15315,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_teardownNormalTabs',
+      key: "_teardownNormalTabs",
       value: function _teardownNormalTabs() {
         // show Tabs Content
         this.$tabLinks.each(function (link) {
@@ -15936,7 +15333,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setTabsAndTabWidth',
+      key: "_setTabsAndTabWidth",
       value: function _setTabsAndTabWidth() {
         this.tabsWidth = this.$el.width();
         this.tabWidth = Math.max(this.tabsWidth, this.el.scrollWidth) / this.$tabLinks.length;
@@ -15948,7 +15345,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_calcRightPos',
+      key: "_calcRightPos",
       value: function _calcRightPos(el) {
         return Math.ceil(this.tabsWidth - el.position().left - el[0].getBoundingClientRect().width);
       }
@@ -15959,12 +15356,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_calcLeftPos',
+      key: "_calcLeftPos",
       value: function _calcLeftPos(el) {
         return Math.floor(el.position().left);
       }
     }, {
-      key: 'updateTabIndicator',
+      key: "updateTabIndicator",
       value: function updateTabIndicator() {
         this._setTabsAndTabWidth();
         this._animateIndicator(this.index);
@@ -15976,7 +15373,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateIndicator',
+      key: "_animateIndicator",
       value: function _animateIndicator(prevIndex) {
         var leftDelay = 0,
             rightDelay = 0;
@@ -16011,7 +15408,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'select',
+      key: "select",
       value: function select(tabId) {
         var tab = this.$tabLinks.filter('[href="#' + tabId + '"]');
         if (tab.length) {
@@ -16019,9 +15416,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Tabs.__proto__ || Object.getPrototypeOf(Tabs), 'init', this).call(this, this, els, options);
+        return _get(Tabs.__proto__ || Object.getPrototypeOf(Tabs), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -16029,13 +15426,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Tabs;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -16050,17 +15447,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Tabs, 'tabs', 'M_Tabs');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -16079,8 +15466,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Tooltip = function (_Component) {
-    _inherits(Tooltip, _Component);
+  var Tooltip = function (_Component7) {
+    _inherits(Tooltip, _Component7);
 
     /**
      * Construct Tooltip instance
@@ -16091,21 +15478,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Tooltip(el, options) {
       _classCallCheck(this, Tooltip);
 
-      var _this = _possibleConstructorReturn(this, (Tooltip.__proto__ || Object.getPrototypeOf(Tooltip)).call(this, Tooltip, el, options));
+      var _this26 = _possibleConstructorReturn(this, (Tooltip.__proto__ || Object.getPrototypeOf(Tooltip)).call(this, Tooltip, el, options));
 
-      _this.el.M_Tooltip = _this;
-      _this.options = $.extend({}, Tooltip.defaults, options);
+      _this26.el.M_Tooltip = _this26;
+      _this26.options = $.extend({}, Tooltip.defaults, options);
 
-      _this.isOpen = false;
-      _this.isHovered = false;
-      _this.isFocused = false;
-      _this._appendTooltipEl();
-      _this._setupEventHandlers();
-      return _this;
+      _this26.isOpen = false;
+      _this26.isHovered = false;
+      _this26.isFocused = false;
+      _this26._appendTooltipEl();
+      _this26._setupEventHandlers();
+      return _this26;
     }
 
     _createClass(Tooltip, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -16117,7 +15504,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.M_Tooltip = undefined;
       }
     }, {
-      key: '_appendTooltipEl',
+      key: "_appendTooltipEl",
       value: function _appendTooltipEl() {
         var tooltipEl = document.createElement('div');
         tooltipEl.classList.add('material-tooltip');
@@ -16130,12 +15517,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         document.body.appendChild(tooltipEl);
       }
     }, {
-      key: '_updateTooltipContent',
+      key: "_updateTooltipContent",
       value: function _updateTooltipContent() {
         this.tooltipEl.querySelector('.tooltip-content').innerHTML = this.options.html;
       }
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleMouseEnterBound = this._handleMouseEnter.bind(this);
         this._handleMouseLeaveBound = this._handleMouseLeave.bind(this);
@@ -16147,7 +15534,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.addEventListener('blur', this._handleBlurBound, true);
       }
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('mouseenter', this._handleMouseEnterBound);
         this.el.removeEventListener('mouseleave', this._handleMouseLeaveBound);
@@ -16155,7 +15542,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.removeEventListener('blur', this._handleBlurBound, true);
       }
     }, {
-      key: 'open',
+      key: "open",
       value: function open(isManual) {
         if (this.isOpen) {
           return;
@@ -16168,7 +15555,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._setEnterDelayTimeout(isManual);
       }
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -16185,18 +15572,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setExitDelayTimeout',
+      key: "_setExitDelayTimeout",
       value: function _setExitDelayTimeout() {
-        var _this2 = this;
+        var _this27 = this;
 
         clearTimeout(this._exitDelayTimeout);
 
         this._exitDelayTimeout = setTimeout(function () {
-          if (_this2.isHovered || _this2.isFocused) {
+          if (_this27.isHovered || _this27.isFocused) {
             return;
           }
 
-          _this2._animateOut();
+          _this27._animateOut();
         }, this.options.exitDelay);
       }
 
@@ -16205,22 +15592,22 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setEnterDelayTimeout',
+      key: "_setEnterDelayTimeout",
       value: function _setEnterDelayTimeout(isManual) {
-        var _this3 = this;
+        var _this28 = this;
 
         clearTimeout(this._enterDelayTimeout);
 
         this._enterDelayTimeout = setTimeout(function () {
-          if (!_this3.isHovered && !_this3.isFocused && !isManual) {
+          if (!_this28.isHovered && !_this28.isFocused && !isManual) {
             return;
           }
 
-          _this3._animateIn();
+          _this28._animateIn();
         }, this.options.enterDelay);
       }
     }, {
-      key: '_positionTooltip',
+      key: "_positionTooltip",
       value: function _positionTooltip() {
         var origin = this.el,
             tooltip = this.tooltipEl,
@@ -16263,7 +15650,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_repositionWithinScreen',
+      key: "_repositionWithinScreen",
       value: function _repositionWithinScreen(x, y, width, height) {
         var scrollLeft = M.getDocumentScrollLeft();
         var scrollTop = M.getDocumentScrollTop();
@@ -16298,7 +15685,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         };
       }
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn() {
         this._positionTooltip();
         this.tooltipEl.style.visibility = 'visible';
@@ -16313,7 +15700,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_animateOut',
+      key: "_animateOut",
       value: function _animateOut() {
         anim.remove(this.tooltipEl);
         anim({
@@ -16326,21 +15713,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_handleMouseEnter',
+      key: "_handleMouseEnter",
       value: function _handleMouseEnter() {
         this.isHovered = true;
         this.isFocused = false; // Allows close of tooltip when opened by focus.
         this.open(false);
       }
     }, {
-      key: '_handleMouseLeave',
+      key: "_handleMouseLeave",
       value: function _handleMouseLeave() {
         this.isHovered = false;
         this.isFocused = false; // Allows close of tooltip when opened by focus.
         this.close();
       }
     }, {
-      key: '_handleFocus',
+      key: "_handleFocus",
       value: function _handleFocus() {
         if (M.tabPressed) {
           this.isFocused = true;
@@ -16348,13 +15735,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleBlur',
+      key: "_handleBlur",
       value: function _handleBlur() {
         this.isFocused = false;
         this.close();
       }
     }, {
-      key: '_getAttributeOptions',
+      key: "_getAttributeOptions",
       value: function _getAttributeOptions() {
         var attributeOptions = {};
         var tooltipTextOption = this.el.getAttribute('data-tooltip');
@@ -16370,9 +15757,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return attributeOptions;
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Tooltip.__proto__ || Object.getPrototypeOf(Tooltip), 'init', this).call(this, this, els, options);
+        return _get(Tooltip.__proto__ || Object.getPrototypeOf(Tooltip), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -16380,13 +15767,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Tooltip;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -16401,345 +15788,340 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Tooltip, 'tooltip', 'M_Tooltip');
   }
 })(cash, M.anime);
-/*!
- * Waves v0.6.4
- * http://fian.my.id/Waves
- *
- * Copyright 2014 Alfiana E. Sibuea and other contributors
- * Released under the MIT license
- * https://github.com/fians/Waves/blob/master/LICENSE
- */
-
+; /*!
+  * Waves v0.6.4
+  * http://fian.my.id/Waves
+  *
+  * Copyright 2014 Alfiana E. Sibuea and other contributors
+  * Released under the MIT license
+  * https://github.com/fians/Waves/blob/master/LICENSE
+  */
 
 ;(function (window) {
-    'use strict';
+  'use strict';
 
-    var Waves = Waves || {};
-    var $$ = document.querySelectorAll.bind(document);
+  var Waves = Waves || {};
+  var $$ = document.querySelectorAll.bind(document);
 
-    // Find exact position of element
-    function isWindow(obj) {
-        return obj !== null && obj === obj.window;
+  // Find exact position of element
+  function isWindow(obj) {
+    return obj !== null && obj === obj.window;
+  }
+
+  function getWindow(elem) {
+    return isWindow(elem) ? elem : elem.nodeType === 9 && elem.defaultView;
+  }
+
+  function offset(elem) {
+    var docElem,
+        win,
+        box = { top: 0, left: 0 },
+        doc = elem && elem.ownerDocument;
+
+    docElem = doc.documentElement;
+
+    if (typeof elem.getBoundingClientRect !== typeof undefined) {
+      box = elem.getBoundingClientRect();
+    }
+    win = getWindow(doc);
+    return {
+      top: box.top + win.pageYOffset - docElem.clientTop,
+      left: box.left + win.pageXOffset - docElem.clientLeft
+    };
+  }
+
+  function convertStyle(obj) {
+    var style = '';
+
+    for (var a in obj) {
+      if (obj.hasOwnProperty(a)) {
+        style += a + ':' + obj[a] + ';';
+      }
     }
 
-    function getWindow(elem) {
-        return isWindow(elem) ? elem : elem.nodeType === 9 && elem.defaultView;
-    }
+    return style;
+  }
 
-    function offset(elem) {
-        var docElem,
-            win,
-            box = { top: 0, left: 0 },
-            doc = elem && elem.ownerDocument;
+  var Effect = {
 
-        docElem = doc.documentElement;
+    // Effect delay
+    duration: 750,
 
-        if (typeof elem.getBoundingClientRect !== typeof undefined) {
-            box = elem.getBoundingClientRect();
-        }
-        win = getWindow(doc);
-        return {
-            top: box.top + win.pageYOffset - docElem.clientTop,
-            left: box.left + win.pageXOffset - docElem.clientLeft
+    show: function (e, element) {
+
+      // Disable right click
+      if (e.button === 2) {
+        return false;
+      }
+
+      var el = element || this;
+
+      // Create ripple
+      var ripple = document.createElement('div');
+      ripple.className = 'waves-ripple';
+      el.appendChild(ripple);
+
+      // Get click coordinate and element witdh
+      var pos = offset(el);
+      var relativeY = e.pageY - pos.top;
+      var relativeX = e.pageX - pos.left;
+      var scale = 'scale(' + el.clientWidth / 100 * 10 + ')';
+
+      // Support for touch devices
+      if ('touches' in e) {
+        relativeY = e.touches[0].pageY - pos.top;
+        relativeX = e.touches[0].pageX - pos.left;
+      }
+
+      // Attach data to element
+      ripple.setAttribute('data-hold', Date.now());
+      ripple.setAttribute('data-scale', scale);
+      ripple.setAttribute('data-x', relativeX);
+      ripple.setAttribute('data-y', relativeY);
+
+      // Set ripple position
+      var rippleStyle = {
+        'top': relativeY + 'px',
+        'left': relativeX + 'px'
+      };
+
+      ripple.className = ripple.className + ' waves-notransition';
+      ripple.setAttribute('style', convertStyle(rippleStyle));
+      ripple.className = ripple.className.replace('waves-notransition', '');
+
+      // Scale the ripple
+      rippleStyle['-webkit-transform'] = scale;
+      rippleStyle['-moz-transform'] = scale;
+      rippleStyle['-ms-transform'] = scale;
+      rippleStyle['-o-transform'] = scale;
+      rippleStyle.transform = scale;
+      rippleStyle.opacity = '1';
+
+      rippleStyle['-webkit-transition-duration'] = Effect.duration + 'ms';
+      rippleStyle['-moz-transition-duration'] = Effect.duration + 'ms';
+      rippleStyle['-o-transition-duration'] = Effect.duration + 'ms';
+      rippleStyle['transition-duration'] = Effect.duration + 'ms';
+
+      rippleStyle['-webkit-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
+      rippleStyle['-moz-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
+      rippleStyle['-o-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
+      rippleStyle['transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
+
+      ripple.setAttribute('style', convertStyle(rippleStyle));
+    },
+
+    hide: function (e) {
+      TouchHandler.touchup(e);
+
+      var el = this;
+      var width = el.clientWidth * 1.4;
+
+      // Get first ripple
+      var ripple = null;
+      var ripples = el.getElementsByClassName('waves-ripple');
+      if (ripples.length > 0) {
+        ripple = ripples[ripples.length - 1];
+      } else {
+        return false;
+      }
+
+      var relativeX = ripple.getAttribute('data-x');
+      var relativeY = ripple.getAttribute('data-y');
+      var scale = ripple.getAttribute('data-scale');
+
+      // Get delay beetween mousedown and mouse leave
+      var diff = Date.now() - Number(ripple.getAttribute('data-hold'));
+      var delay = 350 - diff;
+
+      if (delay < 0) {
+        delay = 0;
+      }
+
+      // Fade out ripple after delay
+      setTimeout(function () {
+        var style = {
+          'top': relativeY + 'px',
+          'left': relativeX + 'px',
+          'opacity': '0',
+
+          // Duration
+          '-webkit-transition-duration': Effect.duration + 'ms',
+          '-moz-transition-duration': Effect.duration + 'ms',
+          '-o-transition-duration': Effect.duration + 'ms',
+          'transition-duration': Effect.duration + 'ms',
+          '-webkit-transform': scale,
+          '-moz-transform': scale,
+          '-ms-transform': scale,
+          '-o-transform': scale,
+          'transform': scale
         };
+
+        ripple.setAttribute('style', convertStyle(style));
+
+        setTimeout(function () {
+          try {
+            el.removeChild(ripple);
+          } catch (e) {
+            return false;
+          }
+        }, Effect.duration);
+      }, delay);
+    },
+
+    // Little hack to make <input> can perform waves effect
+    wrapInput: function (elements) {
+      for (var a = 0; a < elements.length; a++) {
+        var el = elements[a];
+
+        if (el.tagName.toLowerCase() === 'input') {
+          var parent = el.parentNode;
+
+          // If input already have parent just pass through
+          if (parent.tagName.toLowerCase() === 'i' && parent.className.indexOf('waves-effect') !== -1) {
+            continue;
+          }
+
+          // Put element class and style to the specified parent
+          var wrapper = document.createElement('i');
+          wrapper.className = el.className + ' waves-input-wrapper';
+
+          var elementStyle = el.getAttribute('style');
+
+          if (!elementStyle) {
+            elementStyle = '';
+          }
+
+          wrapper.setAttribute('style', elementStyle);
+
+          el.className = 'waves-button-input';
+          el.removeAttribute('style');
+
+          // Put element as child
+          parent.replaceChild(wrapper, el);
+          wrapper.appendChild(el);
+        }
+      }
+    }
+  };
+
+  /**
+   * Disable mousedown event for 500ms during and after touch
+   */
+  var TouchHandler = {
+    /* uses an integer rather than bool so there's no issues with
+     * needing to clear timeouts if another touch event occurred
+     * within the 500ms. Cannot mouseup between touchstart and
+     * touchend, nor in the 500ms after touchend. */
+    touches: 0,
+    allowEvent: function (e) {
+      var allow = true;
+
+      if (e.type === 'touchstart') {
+        TouchHandler.touches += 1; //push
+      } else if (e.type === 'touchend' || e.type === 'touchcancel') {
+        setTimeout(function () {
+          if (TouchHandler.touches > 0) {
+            TouchHandler.touches -= 1; //pop after 500ms
+          }
+        }, 500);
+      } else if (e.type === 'mousedown' && TouchHandler.touches > 0) {
+        allow = false;
+      }
+
+      return allow;
+    },
+    touchup: function (e) {
+      TouchHandler.allowEvent(e);
+    }
+  };
+
+  /**
+   * Delegated click handler for .waves-effect element.
+   * returns null when .waves-effect element not in "click tree"
+   */
+  function getWavesEffectElement(e) {
+    if (TouchHandler.allowEvent(e) === false) {
+      return null;
     }
 
-    function convertStyle(obj) {
-        var style = '';
+    var element = null;
+    var target = e.target || e.srcElement;
 
-        for (var a in obj) {
-            if (obj.hasOwnProperty(a)) {
-                style += a + ':' + obj[a] + ';';
-            }
-        }
+    while (target.parentNode !== null) {
+      if (!(target instanceof SVGElement) && target.className.indexOf('waves-effect') !== -1) {
+        element = target;
+        break;
+      }
+      target = target.parentNode;
+    }
+    return element;
+  }
 
-        return style;
+  /**
+   * Bubble the click and show effect if .waves-effect elem was found
+   */
+  function showEffect(e) {
+    var element = getWavesEffectElement(e);
+
+    if (element !== null) {
+      Effect.show(e, element);
+
+      if ('ontouchstart' in window) {
+        element.addEventListener('touchend', Effect.hide, false);
+        element.addEventListener('touchcancel', Effect.hide, false);
+      }
+
+      element.addEventListener('mouseup', Effect.hide, false);
+      element.addEventListener('mouseleave', Effect.hide, false);
+      element.addEventListener('dragend', Effect.hide, false);
+    }
+  }
+
+  Waves.displayEffect = function (options) {
+    options = options || {};
+
+    if ('duration' in options) {
+      Effect.duration = options.duration;
     }
 
-    var Effect = {
+    //Wrap input inside <i> tag
+    Effect.wrapInput($$('.waves-effect'));
 
-        // Effect delay
-        duration: 750,
-
-        show: function (e, element) {
-
-            // Disable right click
-            if (e.button === 2) {
-                return false;
-            }
-
-            var el = element || this;
-
-            // Create ripple
-            var ripple = document.createElement('div');
-            ripple.className = 'waves-ripple';
-            el.appendChild(ripple);
-
-            // Get click coordinate and element witdh
-            var pos = offset(el);
-            var relativeY = e.pageY - pos.top;
-            var relativeX = e.pageX - pos.left;
-            var scale = 'scale(' + el.clientWidth / 100 * 10 + ')';
-
-            // Support for touch devices
-            if ('touches' in e) {
-                relativeY = e.touches[0].pageY - pos.top;
-                relativeX = e.touches[0].pageX - pos.left;
-            }
-
-            // Attach data to element
-            ripple.setAttribute('data-hold', Date.now());
-            ripple.setAttribute('data-scale', scale);
-            ripple.setAttribute('data-x', relativeX);
-            ripple.setAttribute('data-y', relativeY);
-
-            // Set ripple position
-            var rippleStyle = {
-                'top': relativeY + 'px',
-                'left': relativeX + 'px'
-            };
-
-            ripple.className = ripple.className + ' waves-notransition';
-            ripple.setAttribute('style', convertStyle(rippleStyle));
-            ripple.className = ripple.className.replace('waves-notransition', '');
-
-            // Scale the ripple
-            rippleStyle['-webkit-transform'] = scale;
-            rippleStyle['-moz-transform'] = scale;
-            rippleStyle['-ms-transform'] = scale;
-            rippleStyle['-o-transform'] = scale;
-            rippleStyle.transform = scale;
-            rippleStyle.opacity = '1';
-
-            rippleStyle['-webkit-transition-duration'] = Effect.duration + 'ms';
-            rippleStyle['-moz-transition-duration'] = Effect.duration + 'ms';
-            rippleStyle['-o-transition-duration'] = Effect.duration + 'ms';
-            rippleStyle['transition-duration'] = Effect.duration + 'ms';
-
-            rippleStyle['-webkit-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
-            rippleStyle['-moz-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
-            rippleStyle['-o-transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
-            rippleStyle['transition-timing-function'] = 'cubic-bezier(0.250, 0.460, 0.450, 0.940)';
-
-            ripple.setAttribute('style', convertStyle(rippleStyle));
-        },
-
-        hide: function (e) {
-            TouchHandler.touchup(e);
-
-            var el = this;
-            var width = el.clientWidth * 1.4;
-
-            // Get first ripple
-            var ripple = null;
-            var ripples = el.getElementsByClassName('waves-ripple');
-            if (ripples.length > 0) {
-                ripple = ripples[ripples.length - 1];
-            } else {
-                return false;
-            }
-
-            var relativeX = ripple.getAttribute('data-x');
-            var relativeY = ripple.getAttribute('data-y');
-            var scale = ripple.getAttribute('data-scale');
-
-            // Get delay beetween mousedown and mouse leave
-            var diff = Date.now() - Number(ripple.getAttribute('data-hold'));
-            var delay = 350 - diff;
-
-            if (delay < 0) {
-                delay = 0;
-            }
-
-            // Fade out ripple after delay
-            setTimeout(function () {
-                var style = {
-                    'top': relativeY + 'px',
-                    'left': relativeX + 'px',
-                    'opacity': '0',
-
-                    // Duration
-                    '-webkit-transition-duration': Effect.duration + 'ms',
-                    '-moz-transition-duration': Effect.duration + 'ms',
-                    '-o-transition-duration': Effect.duration + 'ms',
-                    'transition-duration': Effect.duration + 'ms',
-                    '-webkit-transform': scale,
-                    '-moz-transform': scale,
-                    '-ms-transform': scale,
-                    '-o-transform': scale,
-                    'transform': scale
-                };
-
-                ripple.setAttribute('style', convertStyle(style));
-
-                setTimeout(function () {
-                    try {
-                        el.removeChild(ripple);
-                    } catch (e) {
-                        return false;
-                    }
-                }, Effect.duration);
-            }, delay);
-        },
-
-        // Little hack to make <input> can perform waves effect
-        wrapInput: function (elements) {
-            for (var a = 0; a < elements.length; a++) {
-                var el = elements[a];
-
-                if (el.tagName.toLowerCase() === 'input') {
-                    var parent = el.parentNode;
-
-                    // If input already have parent just pass through
-                    if (parent.tagName.toLowerCase() === 'i' && parent.className.indexOf('waves-effect') !== -1) {
-                        continue;
-                    }
-
-                    // Put element class and style to the specified parent
-                    var wrapper = document.createElement('i');
-                    wrapper.className = el.className + ' waves-input-wrapper';
-
-                    var elementStyle = el.getAttribute('style');
-
-                    if (!elementStyle) {
-                        elementStyle = '';
-                    }
-
-                    wrapper.setAttribute('style', elementStyle);
-
-                    el.className = 'waves-button-input';
-                    el.removeAttribute('style');
-
-                    // Put element as child
-                    parent.replaceChild(wrapper, el);
-                    wrapper.appendChild(el);
-                }
-            }
-        }
-    };
-
-    /**
-     * Disable mousedown event for 500ms during and after touch
-     */
-    var TouchHandler = {
-        /* uses an integer rather than bool so there's no issues with
-         * needing to clear timeouts if another touch event occurred
-         * within the 500ms. Cannot mouseup between touchstart and
-         * touchend, nor in the 500ms after touchend. */
-        touches: 0,
-        allowEvent: function (e) {
-            var allow = true;
-
-            if (e.type === 'touchstart') {
-                TouchHandler.touches += 1; //push
-            } else if (e.type === 'touchend' || e.type === 'touchcancel') {
-                setTimeout(function () {
-                    if (TouchHandler.touches > 0) {
-                        TouchHandler.touches -= 1; //pop after 500ms
-                    }
-                }, 500);
-            } else if (e.type === 'mousedown' && TouchHandler.touches > 0) {
-                allow = false;
-            }
-
-            return allow;
-        },
-        touchup: function (e) {
-            TouchHandler.allowEvent(e);
-        }
-    };
-
-    /**
-     * Delegated click handler for .waves-effect element.
-     * returns null when .waves-effect element not in "click tree"
-     */
-    function getWavesEffectElement(e) {
-        if (TouchHandler.allowEvent(e) === false) {
-            return null;
-        }
-
-        var element = null;
-        var target = e.target || e.srcElement;
-
-        while (target.parentNode !== null) {
-            if (!(target instanceof SVGElement) && target.className.indexOf('waves-effect') !== -1) {
-                element = target;
-                break;
-            }
-            target = target.parentNode;
-        }
-        return element;
+    if ('ontouchstart' in window) {
+      document.body.addEventListener('touchstart', showEffect, false);
     }
 
-    /**
-     * Bubble the click and show effect if .waves-effect elem was found
-     */
-    function showEffect(e) {
-        var element = getWavesEffectElement(e);
+    document.body.addEventListener('mousedown', showEffect, false);
+  };
 
-        if (element !== null) {
-            Effect.show(e, element);
-
-            if ('ontouchstart' in window) {
-                element.addEventListener('touchend', Effect.hide, false);
-                element.addEventListener('touchcancel', Effect.hide, false);
-            }
-
-            element.addEventListener('mouseup', Effect.hide, false);
-            element.addEventListener('mouseleave', Effect.hide, false);
-            element.addEventListener('dragend', Effect.hide, false);
-        }
+  /**
+   * Attach Waves to an input element (or any element which doesn't
+   * bubble mouseup/mousedown events).
+   *   Intended to be used with dynamically loaded forms/inputs, or
+   * where the user doesn't want a delegated click handler.
+   */
+  Waves.attach = function (element) {
+    //FUTURE: automatically add waves classes and allow users
+    // to specify them with an options param? Eg. light/classic/button
+    if (element.tagName.toLowerCase() === 'input') {
+      Effect.wrapInput([element]);
+      element = element.parentNode;
     }
 
-    Waves.displayEffect = function (options) {
-        options = options || {};
+    if ('ontouchstart' in window) {
+      element.addEventListener('touchstart', showEffect, false);
+    }
 
-        if ('duration' in options) {
-            Effect.duration = options.duration;
-        }
+    element.addEventListener('mousedown', showEffect, false);
+  };
 
-        //Wrap input inside <i> tag
-        Effect.wrapInput($$('.waves-effect'));
+  window.Waves = Waves;
 
-        if ('ontouchstart' in window) {
-            document.body.addEventListener('touchstart', showEffect, false);
-        }
-
-        document.body.addEventListener('mousedown', showEffect, false);
-    };
-
-    /**
-     * Attach Waves to an input element (or any element which doesn't
-     * bubble mouseup/mousedown events).
-     *   Intended to be used with dynamically loaded forms/inputs, or
-     * where the user doesn't want a delegated click handler.
-     */
-    Waves.attach = function (element) {
-        //FUTURE: automatically add waves classes and allow users
-        // to specify them with an options param? Eg. light/classic/button
-        if (element.tagName.toLowerCase() === 'input') {
-            Effect.wrapInput([element]);
-            element = element.parentNode;
-        }
-
-        if ('ontouchstart' in window) {
-            element.addEventListener('touchstart', showEffect, false);
-        }
-
-        element.addEventListener('mousedown', showEffect, false);
-    };
-
-    window.Waves = Waves;
-
-    document.addEventListener('DOMContentLoaded', function () {
-        Waves.displayEffect();
-    }, false);
+  document.addEventListener('DOMContentLoaded', function () {
+    Waves.displayEffect();
+  }, false);
 })(window);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -16789,7 +16171,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
     }
 
     _createClass(Toast, [{
-      key: '_createToast',
+      key: "_createToast",
 
 
       /**
@@ -16827,7 +16209,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn() {
         // Animate toast in
         anim({
@@ -16845,20 +16227,20 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_setTimer',
+      key: "_setTimer",
       value: function _setTimer() {
-        var _this = this;
+        var _this29 = this;
 
         if (this.timeRemaining !== Infinity) {
           this.counterInterval = setInterval(function () {
             // If toast is not being dragged, decrease its time remaining
-            if (!_this.panning) {
-              _this.timeRemaining -= 20;
+            if (!_this29.panning) {
+              _this29.timeRemaining -= 20;
             }
 
             // Animate toast out
-            if (_this.timeRemaining <= 0) {
-              _this.dismiss();
+            if (_this29.timeRemaining <= 0) {
+              _this29.dismiss();
             }
           }, 20);
         }
@@ -16869,16 +16251,16 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: 'dismiss',
+      key: "dismiss",
       value: function dismiss() {
-        var _this2 = this;
+        var _this30 = this;
 
         window.clearInterval(this.counterInterval);
         var activationDistance = this.el.offsetWidth * this.options.activationPercent;
 
         if (this.wasSwiped) {
           this.el.style.transition = 'transform .05s, opacity .05s';
-          this.el.style.transform = 'translateX(' + activationDistance + 'px)';
+          this.el.style.transform = "translateX(" + activationDistance + "px)";
           this.el.style.opacity = 0;
         }
 
@@ -16890,12 +16272,12 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
           easing: 'easeOutExpo',
           complete: function () {
             // Call the optional callback
-            if (typeof _this2.options.completeCallback === 'function') {
-              _this2.options.completeCallback();
+            if (typeof _this30.options.completeCallback === 'function') {
+              _this30.options.completeCallback();
             }
             // Remove toast from DOM
-            _this2.$el.remove();
-            Toast._toasts.splice(Toast._toasts.indexOf(_this2), 1);
+            _this30.$el.remove();
+            Toast._toasts.splice(Toast._toasts.indexOf(_this30), 1);
             if (Toast._toasts.length === 0) {
               Toast._removeContainer();
             }
@@ -16903,7 +16285,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
         });
       }
     }], [{
-      key: 'getInstance',
+      key: "getInstance",
 
 
       /**
@@ -16919,7 +16301,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_createContainer',
+      key: "_createContainer",
       value: function _createContainer() {
         var container = document.createElement('div');
         container.setAttribute('id', 'toast-container');
@@ -16942,7 +16324,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_removeContainer',
+      key: "_removeContainer",
       value: function _removeContainer() {
         // Add event handler
         document.removeEventListener('mousemove', Toast._onDragMove);
@@ -16958,7 +16340,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_onDragStart',
+      key: "_onDragStart",
       value: function _onDragStart(e) {
         if (e.target && $(e.target).closest('.toast').length) {
           var $toast = $(e.target).closest('.toast');
@@ -16979,7 +16361,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_onDragMove',
+      key: "_onDragMove",
       value: function _onDragMove(e) {
         if (!!Toast._draggedToast) {
           e.preventDefault();
@@ -16991,7 +16373,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 
           var totalDeltaX = toast.xPos - toast.startingXPos;
           var activationDistance = toast.el.offsetWidth * toast.options.activationPercent;
-          toast.el.style.transform = 'translateX(' + totalDeltaX + 'px)';
+          toast.el.style.transform = "translateX(" + totalDeltaX + "px)";
           toast.el.style.opacity = 1 - Math.abs(totalDeltaX / activationDistance);
         }
       }
@@ -17001,7 +16383,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_onDragEnd',
+      key: "_onDragEnd",
       value: function _onDragEnd() {
         if (!!Toast._draggedToast) {
           var toast = Toast._draggedToast;
@@ -17033,7 +16415,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: '_xPos',
+      key: "_xPos",
       value: function _xPos(e) {
         if (e.targetTouches && e.targetTouches.length >= 1) {
           return e.targetTouches[0].clientX;
@@ -17047,14 +16429,14 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
        */
 
     }, {
-      key: 'dismissAll',
+      key: "dismissAll",
       value: function dismissAll() {
         for (var toastIndex in Toast._toasts) {
           Toast._toasts[toastIndex].dismiss();
         }
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -17090,17 +16472,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
     return new Toast(options);
   };
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -17119,8 +16491,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    * @class
    */
 
-  var Sidenav = function (_Component) {
-    _inherits(Sidenav, _Component);
+  var Sidenav = function (_Component8) {
+    _inherits(Sidenav, _Component8);
 
     /**
      * Construct Sidenav instance and set up overlay
@@ -17131,10 +16503,10 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Sidenav(el, options) {
       _classCallCheck(this, Sidenav);
 
-      var _this = _possibleConstructorReturn(this, (Sidenav.__proto__ || Object.getPrototypeOf(Sidenav)).call(this, Sidenav, el, options));
+      var _this31 = _possibleConstructorReturn(this, (Sidenav.__proto__ || Object.getPrototypeOf(Sidenav)).call(this, Sidenav, el, options));
 
-      _this.el.M_Sidenav = _this;
-      _this.id = _this.$el.attr('id');
+      _this31.el.M_Sidenav = _this31;
+      _this31.id = _this31.$el.attr('id');
 
       /**
        * Options for the Sidenav
@@ -17148,42 +16520,42 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Function} onCloseStart - Function called when sidenav starts exiting
        * @prop {Function} onCloseEnd - Function called when sidenav finishes exiting
        */
-      _this.options = $.extend({}, Sidenav.defaults, options);
+      _this31.options = $.extend({}, Sidenav.defaults, options);
 
       /**
        * Describes open/close state of Sidenav
        * @type {Boolean}
        */
-      _this.isOpen = false;
+      _this31.isOpen = false;
 
       /**
        * Describes if Sidenav is fixed
        * @type {Boolean}
        */
-      _this.isFixed = _this.el.classList.contains('sidenav-fixed');
+      _this31.isFixed = _this31.el.classList.contains('sidenav-fixed');
 
       /**
        * Describes if Sidenav is being draggeed
        * @type {Boolean}
        */
-      _this.isDragged = false;
+      _this31.isDragged = false;
 
       // Window size variables for window resize checks
-      _this.lastWindowWidth = window.innerWidth;
-      _this.lastWindowHeight = window.innerHeight;
+      _this31.lastWindowWidth = window.innerWidth;
+      _this31.lastWindowHeight = window.innerHeight;
 
-      _this._createOverlay();
-      _this._createDragTarget();
-      _this._setupEventHandlers();
-      _this._setupClasses();
-      _this._setupFixed();
+      _this31._createOverlay();
+      _this31._createDragTarget();
+      _this31._setupEventHandlers();
+      _this31._setupClasses();
+      _this31._setupFixed();
 
-      Sidenav._sidenavs.push(_this);
-      return _this;
+      Sidenav._sidenavs.push(_this31);
+      return _this31;
     }
 
     _createClass(Sidenav, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -17203,7 +16575,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_createOverlay',
+      key: "_createOverlay",
       value: function _createOverlay() {
         var overlay = document.createElement('div');
         this._closeBound = this.close.bind(this);
@@ -17215,7 +16587,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._overlay = overlay;
       }
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         if (Sidenav._sidenavs.length === 0) {
           document.body.addEventListener('click', this._handleTriggerClick);
@@ -17242,7 +16614,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         if (Sidenav._sidenavs.length === 1) {
           document.body.removeEventListener('click', this._handleTriggerClick);
@@ -17268,7 +16640,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleTriggerClick',
+      key: "_handleTriggerClick",
       value: function _handleTriggerClick(e) {
         var $trigger = $(e.target).closest('.sidenav-trigger');
         if (e.target && $trigger.length) {
@@ -17289,7 +16661,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_startDrag',
+      key: "_startDrag",
       value: function _startDrag(e) {
         var clientX = e.targetTouches[0].clientX;
         this.isDragged = true;
@@ -17310,7 +16682,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_dragMoveUpdate',
+      key: "_dragMoveUpdate",
       value: function _dragMoveUpdate(e) {
         var clientX = e.targetTouches[0].clientX;
         var currentScrollTop = this.isOpen ? this.el.scrollTop : M.getDocumentScrollTop();
@@ -17329,7 +16701,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDragTargetDrag',
+      key: "_handleDragTargetDrag",
       value: function _handleDragTargetDrag(e) {
         // Check if draggable
         if (!this.options.draggable || this._isCurrentlyFixed() || this._verticallyScrolling) {
@@ -17372,7 +16744,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.percentOpen = Math.min(1, totalDeltaX / this._width);
 
         // Set transform and opacity styles
-        this.el.style.transform = transformPrefix + ' translateX(' + transformX + 'px)';
+        this.el.style.transform = transformPrefix + " translateX(" + transformX + "px)";
         this._overlay.style.opacity = this.percentOpen;
       }
 
@@ -17381,7 +16753,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDragTargetRelease',
+      key: "_handleDragTargetRelease",
       value: function _handleDragTargetRelease() {
         if (this.isDragged) {
           if (this.percentOpen > 0.2) {
@@ -17401,7 +16773,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCloseDrag',
+      key: "_handleCloseDrag",
       value: function _handleCloseDrag(e) {
         if (this.isOpen) {
           // Check if draggable
@@ -17438,7 +16810,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           this.percentOpen = Math.min(1, 1 - totalDeltaX / this._width);
 
           // Set transform and opacity styles
-          this.el.style.transform = 'translateX(' + transformX + 'px)';
+          this.el.style.transform = "translateX(" + transformX + "px)";
           this._overlay.style.opacity = this.percentOpen;
         }
       }
@@ -17448,7 +16820,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCloseRelease',
+      key: "_handleCloseRelease",
       value: function _handleCloseRelease() {
         if (this.isOpen && this.isDragged) {
           if (this.percentOpen > 0.8) {
@@ -17467,7 +16839,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCloseTriggerClick',
+      key: "_handleCloseTriggerClick",
       value: function _handleCloseTriggerClick(e) {
         var $closeTrigger = $(e.target).closest('.sidenav-close');
         if ($closeTrigger.length && !this._isCurrentlyFixed()) {
@@ -17480,7 +16852,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowResize',
+      key: "_handleWindowResize",
       value: function _handleWindowResize() {
         // Only handle horizontal resizes
         if (this.lastWindowWidth !== window.innerWidth) {
@@ -17495,7 +16867,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.lastWindowHeight = window.innerHeight;
       }
     }, {
-      key: '_setupClasses',
+      key: "_setupClasses",
       value: function _setupClasses() {
         if (this.options.edge === 'right') {
           this.el.classList.add('right-aligned');
@@ -17503,25 +16875,25 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_removeClasses',
+      key: "_removeClasses",
       value: function _removeClasses() {
         this.el.classList.remove('right-aligned');
         this.dragTarget.classList.remove('right-aligned');
       }
     }, {
-      key: '_setupFixed',
+      key: "_setupFixed",
       value: function _setupFixed() {
         if (this._isCurrentlyFixed()) {
           this.open();
         }
       }
     }, {
-      key: '_isCurrentlyFixed',
+      key: "_isCurrentlyFixed",
       value: function _isCurrentlyFixed() {
         return this.isFixed && window.innerWidth > 992;
       }
     }, {
-      key: '_createDragTarget',
+      key: "_createDragTarget",
       value: function _createDragTarget() {
         var dragTarget = document.createElement('div');
         dragTarget.classList.add('drag-target');
@@ -17529,19 +16901,19 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.dragTarget = dragTarget;
       }
     }, {
-      key: '_preventBodyScrolling',
+      key: "_preventBodyScrolling",
       value: function _preventBodyScrolling() {
         var body = document.body;
         body.style.overflow = 'hidden';
       }
     }, {
-      key: '_enableBodyScrolling',
+      key: "_enableBodyScrolling",
       value: function _enableBodyScrolling() {
         var body = document.body;
         body.style.overflow = '';
       }
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen === true) {
           return;
@@ -17578,7 +16950,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (this.isOpen === false) {
           return;
@@ -17594,7 +16966,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         // Handle fixed Sidenav
         if (this._isCurrentlyFixed()) {
           var transformX = this.options.edge === 'left' ? '-105%' : '105%';
-          this.el.style.transform = 'translateX(' + transformX + ')';
+          this.el.style.transform = "translateX(" + transformX + ")";
 
           // Handle non-fixed Sidenav
         } else {
@@ -17608,15 +16980,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_animateIn',
+      key: "_animateIn",
       value: function _animateIn() {
         this._animateSidenavIn();
         this._animateOverlayIn();
       }
     }, {
-      key: '_animateSidenavIn',
+      key: "_animateSidenavIn",
       value: function _animateSidenavIn() {
-        var _this2 = this;
+        var _this32 = this;
 
         var slideOutPercent = this.options.edge === 'left' ? -1 : 1;
         if (this.isDragged) {
@@ -17626,19 +16998,19 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         anim.remove(this.el);
         anim({
           targets: this.el,
-          translateX: [slideOutPercent * 100 + '%', 0],
+          translateX: [slideOutPercent * 100 + "%", 0],
           duration: this.options.inDuration,
           easing: 'easeOutQuad',
           complete: function () {
             // Run onOpenEnd callback
-            if (typeof _this2.options.onOpenEnd === 'function') {
-              _this2.options.onOpenEnd.call(_this2, _this2.el);
+            if (typeof _this32.options.onOpenEnd === 'function') {
+              _this32.options.onOpenEnd.call(_this32, _this32.el);
             }
           }
         });
       }
     }, {
-      key: '_animateOverlayIn',
+      key: "_animateOverlayIn",
       value: function _animateOverlayIn() {
         var start = 0;
         if (this.isDragged) {
@@ -17658,15 +17030,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
       }
     }, {
-      key: '_animateOut',
+      key: "_animateOut",
       value: function _animateOut() {
         this._animateSidenavOut();
         this._animateOverlayOut();
       }
     }, {
-      key: '_animateSidenavOut',
+      key: "_animateSidenavOut",
       value: function _animateSidenavOut() {
-        var _this3 = this;
+        var _this33 = this;
 
         var endPercent = this.options.edge === 'left' ? -1 : 1;
         var slideOutPercent = 0;
@@ -17677,21 +17049,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         anim.remove(this.el);
         anim({
           targets: this.el,
-          translateX: [slideOutPercent * 100 + '%', endPercent * 105 + '%'],
+          translateX: [slideOutPercent * 100 + "%", endPercent * 105 + "%"],
           duration: this.options.outDuration,
           easing: 'easeOutQuad',
           complete: function () {
             // Run onOpenEnd callback
-            if (typeof _this3.options.onCloseEnd === 'function') {
-              _this3.options.onCloseEnd.call(_this3, _this3.el);
+            if (typeof _this33.options.onCloseEnd === 'function') {
+              _this33.options.onCloseEnd.call(_this33, _this33.el);
             }
           }
         });
       }
     }, {
-      key: '_animateOverlayOut',
+      key: "_animateOverlayOut",
       value: function _animateOverlayOut() {
-        var _this4 = this;
+        var _this34 = this;
 
         anim.remove(this._overlay);
         anim({
@@ -17700,14 +17072,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           duration: this.options.outDuration,
           easing: 'easeOutQuad',
           complete: function () {
-            $(_this4._overlay).css('display', 'none');
+            $(_this34._overlay).css('display', 'none');
           }
         });
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Sidenav.__proto__ || Object.getPrototypeOf(Sidenav), 'init', this).call(this, this, els, options);
+        return _get(Sidenav.__proto__ || Object.getPrototypeOf(Sidenav), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -17715,13 +17087,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Sidenav;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -17745,17 +17117,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Sidenav, 'sidenav', 'M_Sidenav');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -17772,8 +17134,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var ScrollSpy = function (_Component) {
-    _inherits(ScrollSpy, _Component);
+  var ScrollSpy = function (_Component9) {
+    _inherits(ScrollSpy, _Component9);
 
     /**
      * Construct ScrollSpy instance
@@ -17784,9 +17146,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function ScrollSpy(el, options) {
       _classCallCheck(this, ScrollSpy);
 
-      var _this = _possibleConstructorReturn(this, (ScrollSpy.__proto__ || Object.getPrototypeOf(ScrollSpy)).call(this, ScrollSpy, el, options));
+      var _this35 = _possibleConstructorReturn(this, (ScrollSpy.__proto__ || Object.getPrototypeOf(ScrollSpy)).call(this, ScrollSpy, el, options));
 
-      _this.el.M_ScrollSpy = _this;
+      _this35.el.M_ScrollSpy = _this35;
 
       /**
        * Options for the modal
@@ -17796,21 +17158,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {String} [activeClass='active'] - Class applied to active elements
        * @prop {Function} [getActiveElement] - Used to find active element
        */
-      _this.options = $.extend({}, ScrollSpy.defaults, options);
+      _this35.options = $.extend({}, ScrollSpy.defaults, options);
 
       // setup
-      ScrollSpy._elements.push(_this);
+      ScrollSpy._elements.push(_this35);
       ScrollSpy._count++;
       ScrollSpy._increment++;
-      _this.tickId = -1;
-      _this.id = ScrollSpy._increment;
-      _this._setupEventHandlers();
-      _this._handleWindowScroll();
-      return _this;
+      _this35.tickId = -1;
+      _this35.id = ScrollSpy._increment;
+      _this35._setupEventHandlers();
+      _this35._handleWindowScroll();
+      return _this35;
     }
 
     _createClass(ScrollSpy, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -17831,7 +17193,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         var throttledResize = M.throttle(this._handleWindowScroll, 200);
         this._handleThrottledResizeBound = throttledResize.bind(this);
@@ -17848,7 +17210,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         if (ScrollSpy._count === 0) {
           window.removeEventListener('scroll', this._handleWindowScrollBound);
@@ -17863,7 +17225,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleTriggerClick',
+      key: "_handleTriggerClick",
       value: function _handleTriggerClick(e) {
         var $trigger = $(e.target);
         for (var i = ScrollSpy._elements.length - 1; i >= 0; i--) {
@@ -17888,7 +17250,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleWindowScroll',
+      key: "_handleWindowScroll",
       value: function _handleWindowScroll() {
         // unique tick id
         ScrollSpy._ticks++;
@@ -17937,7 +17299,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_enter',
+      key: "_enter",
       value: function _enter() {
         ScrollSpy._visibleElements = ScrollSpy._visibleElements.filter(function (value) {
           return value.height() != 0;
@@ -17957,9 +17319,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         $(this.options.getActiveElement(ScrollSpy._visibleElements[0].attr('id'))).addClass(this.options.activeClass);
       }
     }, {
-      key: '_exit',
+      key: "_exit",
       value: function _exit() {
-        var _this2 = this;
+        var _this36 = this;
 
         ScrollSpy._visibleElements = ScrollSpy._visibleElements.filter(function (value) {
           return value.height() != 0;
@@ -17969,7 +17331,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           $(this.options.getActiveElement(ScrollSpy._visibleElements[0].attr('id'))).removeClass(this.options.activeClass);
 
           ScrollSpy._visibleElements = ScrollSpy._visibleElements.filter(function (el) {
-            return el.attr('id') != _this2.$el.attr('id');
+            return el.attr('id') != _this36.$el.attr('id');
           });
           if (ScrollSpy._visibleElements[0]) {
             // Check if empty
@@ -17978,9 +17340,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(ScrollSpy.__proto__ || Object.getPrototypeOf(ScrollSpy), 'init', this).call(this, this, els, options);
+        return _get(ScrollSpy.__proto__ || Object.getPrototypeOf(ScrollSpy), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -17988,13 +17350,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_ScrollSpy;
       }
     }, {
-      key: '_findElements',
+      key: "_findElements",
       value: function _findElements(top, right, bottom, left) {
         var hits = [];
         for (var i = 0; i < ScrollSpy._elements.length; i++) {
@@ -18017,7 +17379,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return hits;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -18073,17 +17435,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(ScrollSpy, 'scrollSpy', 'M_ScrollSpy');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -18102,8 +17454,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Autocomplete = function (_Component) {
-    _inherits(Autocomplete, _Component);
+  var Autocomplete = function (_Component10) {
+    _inherits(Autocomplete, _Component10);
 
     /**
      * Construct Autocomplete instance
@@ -18114,9 +17466,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Autocomplete(el, options) {
       _classCallCheck(this, Autocomplete);
 
-      var _this = _possibleConstructorReturn(this, (Autocomplete.__proto__ || Object.getPrototypeOf(Autocomplete)).call(this, Autocomplete, el, options));
+      var _this37 = _possibleConstructorReturn(this, (Autocomplete.__proto__ || Object.getPrototypeOf(Autocomplete)).call(this, Autocomplete, el, options));
 
-      _this.el.M_Autocomplete = _this;
+      _this37.el.M_Autocomplete = _this37;
 
       /**
        * Options for the autocomplete
@@ -18130,24 +17482,24 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Boolean} noWrap
        * @prop {Function} onCycleTo
        */
-      _this.options = $.extend({}, Autocomplete.defaults, options);
+      _this37.options = $.extend({}, Autocomplete.defaults, options);
 
       // Setup
-      _this.isOpen = false;
-      _this.count = 0;
-      _this.activeIndex = -1;
-      _this.oldVal;
-      _this.$inputField = _this.$el.closest('.input-field');
-      _this.$active = $();
-      _this._mousedown = false;
-      _this._setupDropdown();
+      _this37.isOpen = false;
+      _this37.count = 0;
+      _this37.activeIndex = -1;
+      _this37.oldVal;
+      _this37.$inputField = _this37.$el.closest('.input-field');
+      _this37.$active = $();
+      _this37._mousedown = false;
+      _this37._setupDropdown();
 
-      _this._setupEventHandlers();
-      return _this;
+      _this37._setupEventHandlers();
+      return _this37;
     }
 
     _createClass(Autocomplete, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -18164,7 +17516,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleInputBlurBound = this._handleInputBlur.bind(this);
         this._handleInputKeyupAndFocusBound = this._handleInputKeyupAndFocus.bind(this);
@@ -18192,7 +17544,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('blur', this._handleInputBlurBound);
         this.el.removeEventListener('keyup', this._handleInputKeyupAndFocusBound);
@@ -18213,12 +17565,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupDropdown',
+      key: "_setupDropdown",
       value: function _setupDropdown() {
-        var _this2 = this;
+        var _this38 = this;
 
         this.container = document.createElement('ul');
-        this.container.id = 'autocomplete-options-' + M.guid();
+        this.container.id = "autocomplete-options-" + M.guid();
         $(this.container).addClass('autocomplete-content dropdown-content');
         this.$inputField.append(this.container);
         this.el.setAttribute('data-target', this.container.id);
@@ -18228,7 +17580,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           closeOnClick: false,
           coverTrigger: false,
           onItemClick: function (itemEl) {
-            _this2.selectOption($(itemEl));
+            _this38.selectOption($(itemEl));
           }
         });
 
@@ -18241,7 +17593,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeDropdown',
+      key: "_removeDropdown",
       value: function _removeDropdown() {
         this.container.parentNode.removeChild(this.container);
       }
@@ -18251,7 +17603,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputBlur',
+      key: "_handleInputBlur",
       value: function _handleInputBlur() {
         if (!this._mousedown) {
           this.close();
@@ -18265,7 +17617,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputKeyupAndFocus',
+      key: "_handleInputKeyupAndFocus",
       value: function _handleInputKeyupAndFocus(e) {
         if (e.type === 'keyup') {
           Autocomplete._keydown = false;
@@ -18295,7 +17647,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputKeydown',
+      key: "_handleInputKeydown",
       value: function _handleInputKeydown(e) {
         Autocomplete._keydown = true;
 
@@ -18340,7 +17692,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputClick',
+      key: "_handleInputClick",
       value: function _handleInputClick(e) {
         this.open();
       }
@@ -18351,7 +17703,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleContainerMousedownAndTouchstart',
+      key: "_handleContainerMousedownAndTouchstart",
       value: function _handleContainerMousedownAndTouchstart(e) {
         this._mousedown = true;
       }
@@ -18362,7 +17714,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleContainerMouseupAndTouchend',
+      key: "_handleContainerMouseupAndTouchend",
       value: function _handleContainerMouseupAndTouchend(e) {
         this._mousedown = false;
       }
@@ -18372,7 +17724,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_highlight',
+      key: "_highlight",
       value: function _highlight(string, $el) {
         var img = $el.find('img');
         var matchStart = $el.text().toLowerCase().indexOf('' + string.toLowerCase() + ''),
@@ -18380,7 +17732,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             beforeMatch = $el.text().slice(0, matchStart),
             matchText = $el.text().slice(matchStart, matchEnd + 1),
             afterMatch = $el.text().slice(matchEnd + 1);
-        $el.html('<span>' + beforeMatch + '<span class=\'highlight\'>' + matchText + '</span>' + afterMatch + '</span>');
+        $el.html("<span>" + beforeMatch + "<span class='highlight'>" + matchText + "</span>" + afterMatch + "</span>");
         if (img.length) {
           $el.prepend(img);
         }
@@ -18391,7 +17743,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_resetCurrentElement',
+      key: "_resetCurrentElement",
       value: function _resetCurrentElement() {
         this.activeIndex = -1;
         this.$active.removeClass('active');
@@ -18402,7 +17754,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_resetAutocomplete',
+      key: "_resetAutocomplete",
       value: function _resetAutocomplete() {
         $(this.container).empty();
         this._resetCurrentElement();
@@ -18417,7 +17769,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'selectOption',
+      key: "selectOption",
       value: function selectOption(el) {
         var text = el.text().trim();
         this.el.value = text;
@@ -18438,9 +17790,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_renderDropdown',
+      key: "_renderDropdown",
       value: function _renderDropdown(data, val) {
-        var _this3 = this;
+        var _this39 = this;
 
         this._resetAutocomplete();
 
@@ -18467,7 +17819,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         // Sort
         if (this.options.sortFunction) {
           var sortFunctionBound = function (a, b) {
-            return _this3.options.sortFunction(a.key.toLowerCase(), b.key.toLowerCase(), val.toLowerCase());
+            return _this39.options.sortFunction(a.key.toLowerCase(), b.key.toLowerCase(), val.toLowerCase());
           };
           matchingData.sort(sortFunctionBound);
         }
@@ -18477,7 +17829,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           var _entry = matchingData[i];
           var $autocompleteOption = $('<li></li>');
           if (!!_entry.data) {
-            $autocompleteOption.append('<img src="' + _entry.data + '" class="right circle"><span>' + _entry.key + '</span>');
+            $autocompleteOption.append("<img src=\"" + _entry.data + "\" class=\"right circle\"><span>" + _entry.key + "</span>");
           } else {
             $autocompleteOption.append('<span>' + _entry.key + '</span>');
           }
@@ -18492,7 +17844,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         var val = this.el.value.toLowerCase();
 
@@ -18517,7 +17869,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         this.dropdown.close();
       }
@@ -18528,7 +17880,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'updateData',
+      key: "updateData",
       value: function updateData(data) {
         var val = this.el.value.toLowerCase();
         this.options.data = data;
@@ -18538,9 +17890,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Autocomplete.__proto__ || Object.getPrototypeOf(Autocomplete), 'init', this).call(this, this, els, options);
+        return _get(Autocomplete.__proto__ || Object.getPrototypeOf(Autocomplete), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -18548,13 +17900,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Autocomplete;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -18577,7 +17929,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Autocomplete, 'autocomplete', 'M_Autocomplete');
   }
 })(cash);
-(function ($) {
+;(function ($) {
   // Function to update labels of text fields
   M.updateTextFields = function () {
     var input_selector = 'input[type=text], input[type=password], input[type=email], input[type=url], input[type=tel], input[type=number], input[type=search], input[type=date], input[type=time], textarea';
@@ -18821,17 +18173,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     });
   }); // End of $(document).ready
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -18846,8 +18188,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Slider = function (_Component) {
-    _inherits(Slider, _Component);
+  var Slider = function (_Component11) {
+    _inherits(Slider, _Component11);
 
     /**
      * Construct Slider instance and set up overlay
@@ -18858,9 +18200,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Slider(el, options) {
       _classCallCheck(this, Slider);
 
-      var _this = _possibleConstructorReturn(this, (Slider.__proto__ || Object.getPrototypeOf(Slider)).call(this, Slider, el, options));
+      var _this40 = _possibleConstructorReturn(this, (Slider.__proto__ || Object.getPrototypeOf(Slider)).call(this, Slider, el, options));
 
-      _this.el.M_Slider = _this;
+      _this40.el.M_Slider = _this40;
 
       /**
        * Options for the modal
@@ -18870,27 +18212,27 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Number} [duration=500] - Length in ms of slide transition
        * @prop {Number} [interval=6000] - Length in ms of slide interval
        */
-      _this.options = $.extend({}, Slider.defaults, options);
+      _this40.options = $.extend({}, Slider.defaults, options);
 
       // setup
-      _this.$slider = _this.$el.find('.slides');
-      _this.$slides = _this.$slider.children('li');
-      _this.activeIndex = _this.$slides.filter(function (item) {
+      _this40.$slider = _this40.$el.find('.slides');
+      _this40.$slides = _this40.$slider.children('li');
+      _this40.activeIndex = _this40.$slides.filter(function (item) {
         return $(item).hasClass('active');
       }).first().index();
-      if (_this.activeIndex != -1) {
-        _this.$active = _this.$slides.eq(_this.activeIndex);
+      if (_this40.activeIndex != -1) {
+        _this40.$active = _this40.$slides.eq(_this40.activeIndex);
       }
 
-      _this._setSliderHeight();
+      _this40._setSliderHeight();
 
       // Set initial positions of captions
-      _this.$slides.find('.caption').each(function (el) {
-        _this._animateCaptionIn(el, 0);
+      _this40.$slides.find('.caption').each(function (el) {
+        _this40._animateCaptionIn(el, 0);
       });
 
       // Move img src into background-image
-      _this.$slides.find('img').each(function (el) {
+      _this40.$slides.find('img').each(function (el) {
         var placeholderBase64 = 'data:image/gif;base64,R0lGODlhAQABAIABAP///wAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
         if ($(el).attr('src') !== placeholderBase64) {
           $(el).css('background-image', 'url("' + $(el).attr('src') + '")');
@@ -18898,50 +18240,50 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       });
 
-      _this._setupIndicators();
+      _this40._setupIndicators();
 
       // Show active slide
-      if (_this.$active) {
-        _this.$active.css('display', 'block');
+      if (_this40.$active) {
+        _this40.$active.css('display', 'block');
       } else {
-        _this.$slides.first().addClass('active');
+        _this40.$slides.first().addClass('active');
         anim({
-          targets: _this.$slides.first()[0],
+          targets: _this40.$slides.first()[0],
           opacity: 1,
-          duration: _this.options.duration,
+          duration: _this40.options.duration,
           easing: 'easeOutQuad'
         });
 
-        _this.activeIndex = 0;
-        _this.$active = _this.$slides.eq(_this.activeIndex);
+        _this40.activeIndex = 0;
+        _this40.$active = _this40.$slides.eq(_this40.activeIndex);
 
         // Update indicators
-        if (_this.options.indicators) {
-          _this.$indicators.eq(_this.activeIndex).addClass('active');
+        if (_this40.options.indicators) {
+          _this40.$indicators.eq(_this40.activeIndex).addClass('active');
         }
       }
 
       // Adjust height to current slide
-      _this.$active.find('img').each(function (el) {
+      _this40.$active.find('img').each(function (el) {
         anim({
-          targets: _this.$active.find('.caption')[0],
+          targets: _this40.$active.find('.caption')[0],
           opacity: 1,
           translateX: 0,
           translateY: 0,
-          duration: _this.options.duration,
+          duration: _this40.options.duration,
           easing: 'easeOutQuad'
         });
       });
 
-      _this._setupEventHandlers();
+      _this40._setupEventHandlers();
 
       // auto scroll
-      _this.start();
-      return _this;
+      _this40.start();
+      return _this40;
     }
 
     _createClass(Slider, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -18959,16 +18301,16 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
-        var _this2 = this;
+        var _this41 = this;
 
         this._handleIntervalBound = this._handleInterval.bind(this);
         this._handleIndicatorClickBound = this._handleIndicatorClick.bind(this);
 
         if (this.options.indicators) {
           this.$indicators.each(function (el) {
-            el.addEventListener('click', _this2._handleIndicatorClickBound);
+            el.addEventListener('click', _this41._handleIndicatorClickBound);
           });
         }
       }
@@ -18978,13 +18320,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
-        var _this3 = this;
+        var _this42 = this;
 
         if (this.options.indicators) {
           this.$indicators.each(function (el) {
-            el.removeEventListener('click', _this3._handleIndicatorClickBound);
+            el.removeEventListener('click', _this42._handleIndicatorClickBound);
           });
         }
       }
@@ -18995,7 +18337,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleIndicatorClick',
+      key: "_handleIndicatorClick",
       value: function _handleIndicatorClick(e) {
         var currIndex = $(e.target).index();
         this.set(currIndex);
@@ -19006,7 +18348,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInterval',
+      key: "_handleInterval",
       value: function _handleInterval() {
         var newActiveIndex = this.$slider.find('.active').index();
         if (this.$slides.length === newActiveIndex + 1) newActiveIndex = 0;
@@ -19023,7 +18365,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateCaptionIn',
+      key: "_animateCaptionIn",
       value: function _animateCaptionIn(caption, duration) {
         var animOptions = {
           targets: caption,
@@ -19048,7 +18390,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setSliderHeight',
+      key: "_setSliderHeight",
       value: function _setSliderHeight() {
         // If fullscreen, do nothing
         if (!this.$el.hasClass('fullscreen')) {
@@ -19067,15 +18409,15 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupIndicators',
+      key: "_setupIndicators",
       value: function _setupIndicators() {
-        var _this4 = this;
+        var _this43 = this;
 
         if (this.options.indicators) {
           this.$indicators = $('<ul class="indicators"></ul>');
           this.$slides.each(function (el, index) {
             var $indicator = $('<li class="indicator-item"></li>');
-            _this4.$indicators.append($indicator[0]);
+            _this43.$indicators.append($indicator[0]);
           });
           this.$el.append(this.$indicators[0]);
           this.$indicators = this.$indicators.children('li.indicator-item');
@@ -19087,7 +18429,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeIndicators',
+      key: "_removeIndicators",
       value: function _removeIndicators() {
         this.$el.find('ul.indicators').remove();
       }
@@ -19098,9 +18440,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'set',
+      key: "set",
       value: function set(index) {
-        var _this5 = this;
+        var _this44 = this;
 
         // Wrap around indices.
         if (index >= this.$slides.length) index = 0;else if (index < 0) index = this.$slides.length - 1;
@@ -19117,7 +18459,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             duration: this.options.duration,
             easing: 'easeOutQuad',
             complete: function () {
-              _this5.$slides.not('.active').each(function (el) {
+              _this44.$slides.not('.active').each(function (el) {
                 anim({
                   targets: el,
                   opacity: 0,
@@ -19168,7 +18510,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'pause',
+      key: "pause",
       value: function pause() {
         clearInterval(this.interval);
       }
@@ -19178,7 +18520,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'start',
+      key: "start",
       value: function start() {
         clearInterval(this.interval);
         this.interval = setInterval(this._handleIntervalBound, this.options.duration + this.options.interval);
@@ -19189,7 +18531,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'next',
+      key: "next",
       value: function next() {
         var newIndex = this.activeIndex + 1;
 
@@ -19204,7 +18546,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'prev',
+      key: "prev",
       value: function prev() {
         var newIndex = this.activeIndex - 1;
 
@@ -19214,9 +18556,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.set(newIndex);
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Slider.__proto__ || Object.getPrototypeOf(Slider), 'init', this).call(this, this, els, options);
+        return _get(Slider.__proto__ || Object.getPrototypeOf(Slider), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -19224,13 +18566,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Slider;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -19245,7 +18587,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Slider, 'slider', 'M_Slider');
   }
 })(cash, M.anime);
-(function ($, anim) {
+;(function ($, anim) {
   $(document).on('click', '.card', function (e) {
     if ($(this).children('.card-reveal').length) {
       var $card = $(e.target).closest('.card');
@@ -19279,17 +18621,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     }
   });
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -19314,8 +18646,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Chips = function (_Component) {
-    _inherits(Chips, _Component);
+  var Chips = function (_Component12) {
+    _inherits(Chips, _Component12);
 
     /**
      * Construct Chips instance and set up overlay
@@ -19326,9 +18658,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Chips(el, options) {
       _classCallCheck(this, Chips);
 
-      var _this = _possibleConstructorReturn(this, (Chips.__proto__ || Object.getPrototypeOf(Chips)).call(this, Chips, el, options));
+      var _this45 = _possibleConstructorReturn(this, (Chips.__proto__ || Object.getPrototypeOf(Chips)).call(this, Chips, el, options));
 
-      _this.el.M_Chips = _this;
+      _this45.el.M_Chips = _this45;
 
       /**
        * Options for the modal
@@ -19338,38 +18670,38 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {String} secondaryPlaceholder
        * @prop {Object} autocompleteOptions
        */
-      _this.options = $.extend({}, Chips.defaults, options);
+      _this45.options = $.extend({}, Chips.defaults, options);
 
-      _this.$el.addClass('chips input-field');
-      _this.chipsData = [];
-      _this.$chips = $();
-      _this._setupInput();
-      _this.hasAutocomplete = Object.keys(_this.options.autocompleteOptions).length > 0;
+      _this45.$el.addClass('chips input-field');
+      _this45.chipsData = [];
+      _this45.$chips = $();
+      _this45._setupInput();
+      _this45.hasAutocomplete = Object.keys(_this45.options.autocompleteOptions).length > 0;
 
       // Set input id
-      if (!_this.$input.attr('id')) {
-        _this.$input.attr('id', M.guid());
+      if (!_this45.$input.attr('id')) {
+        _this45.$input.attr('id', M.guid());
       }
 
       // Render initial chips
-      if (_this.options.data.length) {
-        _this.chipsData = _this.options.data;
-        _this._renderChips(_this.chipsData);
+      if (_this45.options.data.length) {
+        _this45.chipsData = _this45.options.data;
+        _this45._renderChips(_this45.chipsData);
       }
 
       // Setup autocomplete if needed
-      if (_this.hasAutocomplete) {
-        _this._setupAutocomplete();
+      if (_this45.hasAutocomplete) {
+        _this45._setupAutocomplete();
       }
 
-      _this._setPlaceholder();
-      _this._setupLabel();
-      _this._setupEventHandlers();
-      return _this;
+      _this45._setPlaceholder();
+      _this45._setupLabel();
+      _this45._setupEventHandlers();
+      return _this45;
     }
 
     _createClass(Chips, [{
-      key: 'getData',
+      key: "getData",
 
 
       /**
@@ -19384,7 +18716,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'destroy',
+      key: "destroy",
       value: function destroy() {
         this._removeEventHandlers();
         this.$chips.remove();
@@ -19396,7 +18728,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleChipClickBound = this._handleChipClick.bind(this);
         this._handleInputKeydownBound = this._handleInputKeydown.bind(this);
@@ -19417,7 +18749,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('click', this._handleChipClickBound);
         document.removeEventListener('keydown', Chips._handleChipsKeydown);
@@ -19434,7 +18766,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleChipClick',
+      key: "_handleChipClick",
       value: function _handleChipClick(e) {
         var $chip = $(e.target).closest('.chip');
         var clickedClose = $(e.target).is('.close');
@@ -19461,7 +18793,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputFocus',
+      key: "_handleInputFocus",
 
 
       /**
@@ -19476,7 +18808,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputBlur',
+      key: "_handleInputBlur",
       value: function _handleInputBlur() {
         this.$el.removeClass('focus');
       }
@@ -19487,7 +18819,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputKeydown',
+      key: "_handleInputKeydown",
       value: function _handleInputKeydown(e) {
         Chips._keydown = true;
 
@@ -19518,7 +18850,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_renderChip',
+      key: "_renderChip",
       value: function _renderChip(chip) {
         if (!chip.tag) {
           return;
@@ -19548,7 +18880,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_renderChips',
+      key: "_renderChips",
       value: function _renderChips() {
         this.$chips.remove();
         for (var i = 0; i < this.chipsData.length; i++) {
@@ -19566,16 +18898,16 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupAutocomplete',
+      key: "_setupAutocomplete",
       value: function _setupAutocomplete() {
-        var _this2 = this;
+        var _this46 = this;
 
         this.options.autocompleteOptions.onAutocomplete = function (val) {
-          _this2.addChip({
+          _this46.addChip({
             tag: val
           });
-          _this2.$input[0].value = '';
-          _this2.$input[0].focus();
+          _this46.$input[0].value = '';
+          _this46.$input[0].focus();
         };
 
         this.autocomplete = M.Autocomplete.init(this.$input[0], this.options.autocompleteOptions);
@@ -19586,7 +18918,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupInput',
+      key: "_setupInput",
       value: function _setupInput() {
         this.$input = this.$el.find('input');
         if (!this.$input.length) {
@@ -19602,7 +18934,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupLabel',
+      key: "_setupLabel",
       value: function _setupLabel() {
         this.$label = this.$el.find('label');
         if (this.$label.length) {
@@ -19615,7 +18947,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setPlaceholder',
+      key: "_setPlaceholder",
       value: function _setPlaceholder() {
         if (this.chipsData !== undefined && !this.chipsData.length && this.options.placeholder) {
           $(this.$input).prop('placeholder', this.options.placeholder);
@@ -19630,7 +18962,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_isValid',
+      key: "_isValid",
       value: function _isValid(chip) {
         if (chip.hasOwnProperty('tag') && chip.tag !== '') {
           var exists = false;
@@ -19652,7 +18984,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'addChip',
+      key: "addChip",
       value: function addChip(chip) {
         if (!this._isValid(chip) || this.chipsData.length >= this.options.limit) {
           return;
@@ -19676,7 +19008,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'deleteChip',
+      key: "deleteChip",
       value: function deleteChip(chipIndex) {
         var $chip = this.$chips.eq(chipIndex);
         this.$chips.eq(chipIndex).remove();
@@ -19698,7 +19030,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'selectChip',
+      key: "selectChip",
       value: function selectChip(chipIndex) {
         var $chip = this.$chips.eq(chipIndex);
         this._selectedChip = $chip;
@@ -19710,9 +19042,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Chips.__proto__ || Object.getPrototypeOf(Chips), 'init', this).call(this, this, els, options);
+        return _get(Chips.__proto__ || Object.getPrototypeOf(Chips), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -19720,13 +19052,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Chips;
       }
     }, {
-      key: '_handleChipsKeydown',
+      key: "_handleChipsKeydown",
       value: function _handleChipsKeydown(e) {
         Chips._keydown = true;
 
@@ -19788,7 +19120,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleChipsKeyup',
+      key: "_handleChipsKeyup",
       value: function _handleChipsKeyup(e) {
         Chips._keydown = false;
       }
@@ -19799,7 +19131,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleChipsBlur',
+      key: "_handleChipsBlur",
       value: function _handleChipsBlur(e) {
         if (!Chips._keydown) {
           var $chips = $(e.target).closest('.chips');
@@ -19809,7 +19141,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -19843,17 +19175,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     });
   });
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -19868,8 +19190,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Pushpin = function (_Component) {
-    _inherits(Pushpin, _Component);
+  var Pushpin = function (_Component13) {
+    _inherits(Pushpin, _Component13);
 
     /**
      * Construct Pushpin instance
@@ -19880,25 +19202,25 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Pushpin(el, options) {
       _classCallCheck(this, Pushpin);
 
-      var _this = _possibleConstructorReturn(this, (Pushpin.__proto__ || Object.getPrototypeOf(Pushpin)).call(this, Pushpin, el, options));
+      var _this47 = _possibleConstructorReturn(this, (Pushpin.__proto__ || Object.getPrototypeOf(Pushpin)).call(this, Pushpin, el, options));
 
-      _this.el.M_Pushpin = _this;
+      _this47.el.M_Pushpin = _this47;
 
       /**
        * Options for the modal
        * @member Pushpin#options
        */
-      _this.options = $.extend({}, Pushpin.defaults, options);
+      _this47.options = $.extend({}, Pushpin.defaults, options);
 
-      _this.originalOffset = _this.el.offsetTop;
-      Pushpin._pushpins.push(_this);
-      _this._setupEventHandlers();
-      _this._updatePosition();
-      return _this;
+      _this47.originalOffset = _this47.el.offsetTop;
+      Pushpin._pushpins.push(_this47);
+      _this47._setupEventHandlers();
+      _this47._updatePosition();
+      return _this47;
     }
 
     _createClass(Pushpin, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -19914,23 +19236,23 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         Pushpin._pushpins.splice(index, 1);
       }
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         document.addEventListener('scroll', Pushpin._updateElements);
       }
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         document.removeEventListener('scroll', Pushpin._updateElements);
       }
     }, {
-      key: '_updatePosition',
+      key: "_updatePosition",
       value: function _updatePosition() {
         var scrolled = M.getDocumentScrollTop() + this.options.offset;
 
         if (this.options.top <= scrolled && this.options.bottom >= scrolled && !this.el.classList.contains('pinned')) {
           this._removePinClasses();
-          this.el.style.top = this.options.offset + 'px';
+          this.el.style.top = this.options.offset + "px";
           this.el.classList.add('pinned');
 
           // onPositionChange callback
@@ -19955,7 +19277,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (scrolled > this.options.bottom && !this.el.classList.contains('pin-bottom')) {
           this._removePinClasses();
           this.el.classList.add('pin-bottom');
-          this.el.style.top = this.options.bottom - this.originalOffset + 'px';
+          this.el.style.top = this.options.bottom - this.originalOffset + "px";
 
           // onPositionChange callback
           if (typeof this.options.onPositionChange === 'function') {
@@ -19964,7 +19286,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_removePinClasses',
+      key: "_removePinClasses",
       value: function _removePinClasses() {
         // IE 11 bug (can't remove multiple classes in one line)
         this.el.classList.remove('pin-top');
@@ -19972,9 +19294,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.classList.remove('pin-bottom');
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Pushpin.__proto__ || Object.getPrototypeOf(Pushpin), 'init', this).call(this, this, els, options);
+        return _get(Pushpin.__proto__ || Object.getPrototypeOf(Pushpin), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -19982,13 +19304,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Pushpin;
       }
     }, {
-      key: '_updateElements',
+      key: "_updateElements",
       value: function _updateElements() {
         for (var elIndex in Pushpin._pushpins) {
           var pInstance = Pushpin._pushpins[elIndex];
@@ -19996,7 +19318,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -20019,17 +19341,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Pushpin, 'pushpin', 'M_Pushpin');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {
@@ -20045,8 +19357,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var FloatingActionButton = function (_Component) {
-    _inherits(FloatingActionButton, _Component);
+  var FloatingActionButton = function (_Component14) {
+    _inherits(FloatingActionButton, _Component14);
 
     /**
      * Construct FloatingActionButton instance
@@ -20057,9 +19369,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function FloatingActionButton(el, options) {
       _classCallCheck(this, FloatingActionButton);
 
-      var _this = _possibleConstructorReturn(this, (FloatingActionButton.__proto__ || Object.getPrototypeOf(FloatingActionButton)).call(this, FloatingActionButton, el, options));
+      var _this48 = _possibleConstructorReturn(this, (FloatingActionButton.__proto__ || Object.getPrototypeOf(FloatingActionButton)).call(this, FloatingActionButton, el, options));
 
-      _this.el.M_FloatingActionButton = _this;
+      _this48.el.M_FloatingActionButton = _this48;
 
       /**
        * Options for the fab
@@ -20068,32 +19380,32 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Boolean} [hoverEnabled=true] - Enable hover vs click
        * @prop {Boolean} [toolbarEnabled=false] - Enable toolbar transition
        */
-      _this.options = $.extend({}, FloatingActionButton.defaults, options);
+      _this48.options = $.extend({}, FloatingActionButton.defaults, options);
 
-      _this.isOpen = false;
-      _this.$anchor = _this.$el.children('a').first();
-      _this.$menu = _this.$el.children('ul').first();
-      _this.$floatingBtns = _this.$el.find('ul .btn-floating');
-      _this.$floatingBtnsReverse = _this.$el.find('ul .btn-floating').reverse();
-      _this.offsetY = 0;
-      _this.offsetX = 0;
+      _this48.isOpen = false;
+      _this48.$anchor = _this48.$el.children('a').first();
+      _this48.$menu = _this48.$el.children('ul').first();
+      _this48.$floatingBtns = _this48.$el.find('ul .btn-floating');
+      _this48.$floatingBtnsReverse = _this48.$el.find('ul .btn-floating').reverse();
+      _this48.offsetY = 0;
+      _this48.offsetX = 0;
 
-      _this.$el.addClass('direction-' + _this.options.direction);
-      if (_this.options.direction === 'top') {
-        _this.offsetY = 40;
-      } else if (_this.options.direction === 'right') {
-        _this.offsetX = -40;
-      } else if (_this.options.direction === 'bottom') {
-        _this.offsetY = -40;
+      _this48.$el.addClass("direction-" + _this48.options.direction);
+      if (_this48.options.direction === 'top') {
+        _this48.offsetY = 40;
+      } else if (_this48.options.direction === 'right') {
+        _this48.offsetX = -40;
+      } else if (_this48.options.direction === 'bottom') {
+        _this48.offsetY = -40;
       } else {
-        _this.offsetX = 40;
+        _this48.offsetX = 40;
       }
-      _this._setupEventHandlers();
-      return _this;
+      _this48._setupEventHandlers();
+      return _this48;
     }
 
     _createClass(FloatingActionButton, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -20109,7 +19421,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleFABClickBound = this._handleFABClick.bind(this);
         this._handleOpenBound = this.open.bind(this);
@@ -20128,7 +19440,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         if (this.options.hoverEnabled && !this.options.toolbarEnabled) {
           this.el.removeEventListener('mouseenter', this._handleOpenBound);
@@ -20143,7 +19455,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleFABClick',
+      key: "_handleFABClick",
       value: function _handleFABClick() {
         if (this.isOpen) {
           this.close();
@@ -20158,7 +19470,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDocumentClick',
+      key: "_handleDocumentClick",
       value: function _handleDocumentClick(e) {
         if (!$(e.target).closest(this.$menu).length) {
           this.close();
@@ -20170,7 +19482,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen) {
           return;
@@ -20189,7 +19501,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -20210,9 +19522,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateInFAB',
+      key: "_animateInFAB",
       value: function _animateInFAB() {
-        var _this2 = this;
+        var _this49 = this;
 
         this.$el.addClass('active');
 
@@ -20222,8 +19534,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             targets: el,
             opacity: 1,
             scale: [0.4, 1],
-            translateY: [_this2.offsetY, 0],
-            translateX: [_this2.offsetX, 0],
+            translateY: [_this49.offsetY, 0],
+            translateX: [_this49.offsetX, 0],
             duration: 275,
             delay: time,
             easing: 'easeInOutQuad'
@@ -20237,9 +19549,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateOutFAB',
+      key: "_animateOutFAB",
       value: function _animateOutFAB() {
-        var _this3 = this;
+        var _this50 = this;
 
         this.$floatingBtnsReverse.each(function (el) {
           anim.remove(el);
@@ -20247,12 +19559,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             targets: el,
             opacity: 0,
             scale: 0.4,
-            translateY: _this3.offsetY,
-            translateX: _this3.offsetX,
+            translateY: _this50.offsetY,
+            translateX: _this50.offsetX,
             duration: 175,
             easing: 'easeOutQuad',
             complete: function () {
-              _this3.$el.removeClass('active');
+              _this50.$el.removeClass('active');
             }
           });
         });
@@ -20263,9 +19575,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateInToolbar',
+      key: "_animateInToolbar",
       value: function _animateInToolbar() {
-        var _this4 = this;
+        var _this51 = this;
 
         var scaleFactor = void 0;
         var windowWidth = window.innerWidth;
@@ -20301,18 +19613,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         });
 
         setTimeout(function () {
-          _this4.$el.css({
+          _this51.$el.css({
             transform: '',
             transition: 'transform .2s cubic-bezier(0.550, 0.085, 0.680, 0.530), background-color 0s linear .2s'
           });
-          _this4.$anchor.css({
+          _this51.$anchor.css({
             overflow: 'visible',
             transform: '',
             transition: 'transform .2s'
           });
 
           setTimeout(function () {
-            _this4.$el.css({
+            _this51.$el.css({
               overflow: 'hidden',
               'background-color': fabColor
             });
@@ -20320,14 +19632,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
               transform: 'scale(' + scaleFactor + ')',
               transition: 'transform .2s cubic-bezier(0.550, 0.055, 0.675, 0.190)'
             });
-            _this4.$menu.children('li').children('a').css({
+            _this51.$menu.children('li').children('a').css({
               opacity: 1
             });
 
             // Scroll to close.
-            _this4._handleDocumentClickBound = _this4._handleDocumentClick.bind(_this4);
-            window.addEventListener('scroll', _this4._handleCloseBound, true);
-            document.body.addEventListener('click', _this4._handleDocumentClickBound, true);
+            _this51._handleDocumentClickBound = _this51._handleDocumentClick.bind(_this51);
+            window.addEventListener('scroll', _this51._handleCloseBound, true);
+            document.body.addEventListener('click', _this51._handleDocumentClickBound, true);
           }, 100);
         }, 0);
       }
@@ -20337,9 +19649,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_animateOutToolbar',
+      key: "_animateOutToolbar",
       value: function _animateOutToolbar() {
-        var _this5 = this;
+        var _this52 = this;
 
         var windowWidth = window.innerWidth;
         var windowHeight = window.innerHeight;
@@ -20370,26 +19682,26 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           backdrop.remove();
 
           // Set initial state.
-          _this5.$el.css({
+          _this52.$el.css({
             'text-align': '',
             width: '',
             bottom: '',
             left: '',
             overflow: '',
             'background-color': '',
-            transform: 'translate3d(' + -_this5.offsetX + 'px,0,0)'
+            transform: 'translate3d(' + -_this52.offsetX + 'px,0,0)'
           });
-          _this5.$anchor.css({
+          _this52.$anchor.css({
             overflow: '',
-            transform: 'translate3d(0,' + _this5.offsetY + 'px,0)'
+            transform: 'translate3d(0,' + _this52.offsetY + 'px,0)'
           });
 
           setTimeout(function () {
-            _this5.$el.css({
+            _this52.$el.css({
               transform: 'translate3d(0,0,0)',
               transition: 'transform .2s'
             });
-            _this5.$anchor.css({
+            _this52.$anchor.css({
               transform: 'translate3d(0,0,0)',
               transition: 'transform .2s cubic-bezier(0.550, 0.055, 0.675, 0.190)'
             });
@@ -20397,9 +19709,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }, 200);
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(FloatingActionButton.__proto__ || Object.getPrototypeOf(FloatingActionButton), 'init', this).call(this, this, els, options);
+        return _get(FloatingActionButton.__proto__ || Object.getPrototypeOf(FloatingActionButton), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -20407,13 +19719,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_FloatingActionButton;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -20428,17 +19740,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(FloatingActionButton, 'floatingActionButton', 'M_FloatingActionButton');
   }
 })(cash, M.anime);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -20524,8 +19826,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Datepicker = function (_Component) {
-    _inherits(Datepicker, _Component);
+  var Datepicker = function (_Component15) {
+    _inherits(Datepicker, _Component15);
 
     /**
      * Construct Datepicker instance and set up overlay
@@ -20536,55 +19838,55 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Datepicker(el, options) {
       _classCallCheck(this, Datepicker);
 
-      var _this = _possibleConstructorReturn(this, (Datepicker.__proto__ || Object.getPrototypeOf(Datepicker)).call(this, Datepicker, el, options));
+      var _this53 = _possibleConstructorReturn(this, (Datepicker.__proto__ || Object.getPrototypeOf(Datepicker)).call(this, Datepicker, el, options));
 
-      _this.el.M_Datepicker = _this;
+      _this53.el.M_Datepicker = _this53;
 
-      _this.options = $.extend({}, Datepicker.defaults, options);
+      _this53.options = $.extend({}, Datepicker.defaults, options);
 
       // make sure i18n defaults are not lost when only few i18n option properties are passed
       if (!!options && options.hasOwnProperty('i18n') && typeof options.i18n === 'object') {
-        _this.options.i18n = $.extend({}, Datepicker.defaults.i18n, options.i18n);
+        _this53.options.i18n = $.extend({}, Datepicker.defaults.i18n, options.i18n);
       }
 
       // Remove time component from minDate and maxDate options
-      if (_this.options.minDate) _this.options.minDate.setHours(0, 0, 0, 0);
-      if (_this.options.maxDate) _this.options.maxDate.setHours(0, 0, 0, 0);
+      if (_this53.options.minDate) _this53.options.minDate.setHours(0, 0, 0, 0);
+      if (_this53.options.maxDate) _this53.options.maxDate.setHours(0, 0, 0, 0);
 
-      _this.id = M.guid();
+      _this53.id = M.guid();
 
-      _this._setupVariables();
-      _this._insertHTMLIntoDOM();
-      _this._setupModal();
+      _this53._setupVariables();
+      _this53._insertHTMLIntoDOM();
+      _this53._setupModal();
 
-      _this._setupEventHandlers();
+      _this53._setupEventHandlers();
 
-      if (!_this.options.defaultDate) {
-        _this.options.defaultDate = new Date(Date.parse(_this.el.value));
+      if (!_this53.options.defaultDate) {
+        _this53.options.defaultDate = new Date(Date.parse(_this53.el.value));
       }
 
-      var defDate = _this.options.defaultDate;
+      var defDate = _this53.options.defaultDate;
       if (Datepicker._isDate(defDate)) {
-        if (_this.options.setDefaultDate) {
-          _this.setDate(defDate, true);
-          _this.setInputValue();
+        if (_this53.options.setDefaultDate) {
+          _this53.setDate(defDate, true);
+          _this53.setInputValue();
         } else {
-          _this.gotoDate(defDate);
+          _this53.gotoDate(defDate);
         }
       } else {
-        _this.gotoDate(new Date());
+        _this53.gotoDate(new Date());
       }
 
       /**
        * Describes open/close state of datepicker
        * @type {Boolean}
        */
-      _this.isOpen = false;
-      return _this;
+      _this53.isOpen = false;
+      return _this53;
     }
 
     _createClass(Datepicker, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -20598,7 +19900,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.M_Datepicker = undefined;
       }
     }, {
-      key: 'destroySelects',
+      key: "destroySelects",
       value: function destroySelects() {
         var oldYearSelect = this.calendarEl.querySelector('.orig-select-year');
         if (oldYearSelect) {
@@ -20610,7 +19912,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_insertHTMLIntoDOM',
+      key: "_insertHTMLIntoDOM",
       value: function _insertHTMLIntoDOM() {
         if (this.options.showClearBtn) {
           $(this.clearBtn).css({ visibility: '' });
@@ -20627,21 +19929,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_setupModal',
+      key: "_setupModal",
       value: function _setupModal() {
-        var _this2 = this;
+        var _this54 = this;
 
         this.modalEl.id = 'modal-' + this.id;
         this.modal = M.Modal.init(this.modalEl, {
           onCloseEnd: function () {
-            _this2.isOpen = false;
+            _this54.isOpen = false;
           }
         });
       }
     }, {
-      key: 'toString',
+      key: "toString",
       value: function toString(format) {
-        var _this3 = this;
+        var _this55 = this;
 
         format = format || this.options.format;
         if (!Datepicker._isDate(this.date)) {
@@ -20650,8 +19952,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         var formatArray = format.split(/(d{1,4}|m{1,4}|y{4}|yy|!.)/g);
         var formattedDate = formatArray.map(function (label) {
-          if (_this3.formats[label]) {
-            return _this3.formats[label]();
+          if (_this55.formats[label]) {
+            return _this55.formats[label]();
           }
 
           return label;
@@ -20659,7 +19961,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return formattedDate;
       }
     }, {
-      key: 'setDate',
+      key: "setDate",
       value: function setDate(date, preventOnSelect) {
         if (!date) {
           this.date = null;
@@ -20694,13 +19996,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'setInputValue',
+      key: "setInputValue",
       value: function setInputValue() {
         this.el.value = this.toString();
         this.$el.trigger('change', { firedBy: this });
       }
     }, {
-      key: '_renderDateDisplay',
+      key: "_renderDateDisplay",
       value: function _renderDateDisplay() {
         var displayDate = Datepicker._isDate(this.date) ? this.date : new Date();
         var i18n = this.options.i18n;
@@ -20708,7 +20010,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         var month = i18n.monthsShort[displayDate.getMonth()];
         var date = displayDate.getDate();
         this.yearTextEl.innerHTML = displayDate.getFullYear();
-        this.dateTextEl.innerHTML = day + ', ' + month + ' ' + date;
+        this.dateTextEl.innerHTML = day + ", " + month + " " + date;
       }
 
       /**
@@ -20716,7 +20018,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'gotoDate',
+      key: "gotoDate",
       value: function gotoDate(date) {
         var newCalendar = true;
 
@@ -20744,13 +20046,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.adjustCalendars();
       }
     }, {
-      key: 'adjustCalendars',
+      key: "adjustCalendars",
       value: function adjustCalendars() {
         this.calendars[0] = this.adjustCalendar(this.calendars[0]);
         this.draw();
       }
     }, {
-      key: 'adjustCalendar',
+      key: "adjustCalendar",
       value: function adjustCalendar(calendar) {
         if (calendar.month < 0) {
           calendar.year -= Math.ceil(Math.abs(calendar.month) / 12);
@@ -20763,19 +20065,19 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return calendar;
       }
     }, {
-      key: 'nextMonth',
+      key: "nextMonth",
       value: function nextMonth() {
         this.calendars[0].month++;
         this.adjustCalendars();
       }
     }, {
-      key: 'prevMonth',
+      key: "prevMonth",
       value: function prevMonth() {
         this.calendars[0].month--;
         this.adjustCalendars();
       }
     }, {
-      key: 'render',
+      key: "render",
       value: function render(year, month, randId) {
         var opts = this.options,
             now = new Date(),
@@ -20855,7 +20157,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return this.renderTable(opts, data, randId);
       }
     }, {
-      key: 'renderDay',
+      key: "renderDay",
       value: function renderDay(opts) {
         var arr = [];
         var ariaSelected = 'false';
@@ -20890,35 +20192,35 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (opts.isEndRange) {
           arr.push('is-endrange');
         }
-        return '<td data-day="' + opts.day + '" class="' + arr.join(' ') + '" aria-selected="' + ariaSelected + '">' + ('<button class="datepicker-day-button" type="button" data-year="' + opts.year + '" data-month="' + opts.month + '" data-day="' + opts.day + '">' + opts.day + '</button>') + '</td>';
+        return "<td data-day=\"" + opts.day + "\" class=\"" + arr.join(' ') + "\" aria-selected=\"" + ariaSelected + "\">" + ("<button class=\"datepicker-day-button\" type=\"button\" data-year=\"" + opts.year + "\" data-month=\"" + opts.month + "\" data-day=\"" + opts.day + "\">" + opts.day + "</button>") + '</td>';
       }
     }, {
-      key: 'renderRow',
+      key: "renderRow",
       value: function renderRow(days, isRTL, isRowSelected) {
         return '<tr class="datepicker-row' + (isRowSelected ? ' is-selected' : '') + '">' + (isRTL ? days.reverse() : days).join('') + '</tr>';
       }
     }, {
-      key: 'renderTable',
+      key: "renderTable",
       value: function renderTable(opts, data, randId) {
         return '<div class="datepicker-table-wrapper"><table cellpadding="0" cellspacing="0" class="datepicker-table" role="grid" aria-labelledby="' + randId + '">' + this.renderHead(opts) + this.renderBody(data) + '</table></div>';
       }
     }, {
-      key: 'renderHead',
+      key: "renderHead",
       value: function renderHead(opts) {
         var i = void 0,
             arr = [];
         for (i = 0; i < 7; i++) {
-          arr.push('<th scope="col"><abbr title="' + this.renderDayName(opts, i) + '">' + this.renderDayName(opts, i, true) + '</abbr></th>');
+          arr.push("<th scope=\"col\"><abbr title=\"" + this.renderDayName(opts, i) + "\">" + this.renderDayName(opts, i, true) + "</abbr></th>");
         }
         return '<thead><tr>' + (opts.isRTL ? arr.reverse() : arr).join('') + '</tr></thead>';
       }
     }, {
-      key: 'renderBody',
+      key: "renderBody",
       value: function renderBody(rows) {
         return '<tbody>' + rows.join('') + '</tbody>';
       }
     }, {
-      key: 'renderTitle',
+      key: "renderTitle",
       value: function renderTitle(instance, c, year, month, refYear, randId) {
         var i = void 0,
             j = void 0,
@@ -20948,14 +20250,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         for (arr = []; i < j && i <= opts.maxYear; i++) {
           if (i >= opts.minYear) {
-            arr.push('<option value="' + i + '" ' + (i === year ? 'selected="selected"' : '') + '>' + i + '</option>');
+            arr.push("<option value=\"" + i + "\" " + (i === year ? 'selected="selected"' : '') + ">" + i + "</option>");
           }
         }
 
-        yearHtml = '<select class="datepicker-select orig-select-year" tabindex="-1">' + arr.join('') + '</select>';
+        yearHtml = "<select class=\"datepicker-select orig-select-year\" tabindex=\"-1\">" + arr.join('') + "</select>";
 
         var leftArrow = '<svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M15.41 16.09l-4.58-4.59 4.58-4.59L14 5.5l-6 6 6 6z"/><path d="M0-.5h24v24H0z" fill="none"/></svg>';
-        html += '<button class="month-prev' + (prev ? '' : ' is-disabled') + '" type="button">' + leftArrow + '</button>';
+        html += "<button class=\"month-prev" + (prev ? '' : ' is-disabled') + "\" type=\"button\">" + leftArrow + "</button>";
 
         html += '<div class="selects-container">';
         if (opts.showMonthAfterYear) {
@@ -20974,7 +20276,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
 
         var rightArrow = '<svg fill="#000000" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M8.59 16.34l4.58-4.59-4.58-4.59L10 5.75l6 6-6 6z"/><path d="M0-.25h24v24H0z" fill="none"/></svg>';
-        html += '<button class="month-next' + (next ? '' : ' is-disabled') + '" type="button">' + rightArrow + '</button>';
+        html += "<button class=\"month-next" + (next ? '' : ' is-disabled') + "\" type=\"button\">" + rightArrow + "</button>";
 
         return html += '</div>';
       }
@@ -20984,7 +20286,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'draw',
+      key: "draw",
       value: function draw(force) {
         if (!this.isOpen && !force) {
           return;
@@ -21047,7 +20349,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleInputKeydownBound = this._handleInputKeydown.bind(this);
         this._handleInputClickBound = this._handleInputClick.bind(this);
@@ -21070,9 +20372,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_setupVariables',
+      key: "_setupVariables",
       value: function _setupVariables() {
-        var _this4 = this;
+        var _this56 = this;
 
         this.$modalEl = $(Datepicker._template);
         this.modalEl = this.$modalEl[0];
@@ -21089,36 +20391,36 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         this.formats = {
           d: function () {
-            return _this4.date.getDate();
+            return _this56.date.getDate();
           },
           dd: function () {
-            var d = _this4.date.getDate();
+            var d = _this56.date.getDate();
             return (d < 10 ? '0' : '') + d;
           },
           ddd: function () {
-            return _this4.options.i18n.weekdaysShort[_this4.date.getDay()];
+            return _this56.options.i18n.weekdaysShort[_this56.date.getDay()];
           },
           dddd: function () {
-            return _this4.options.i18n.weekdays[_this4.date.getDay()];
+            return _this56.options.i18n.weekdays[_this56.date.getDay()];
           },
           m: function () {
-            return _this4.date.getMonth() + 1;
+            return _this56.date.getMonth() + 1;
           },
           mm: function () {
-            var m = _this4.date.getMonth() + 1;
+            var m = _this56.date.getMonth() + 1;
             return (m < 10 ? '0' : '') + m;
           },
           mmm: function () {
-            return _this4.options.i18n.monthsShort[_this4.date.getMonth()];
+            return _this56.options.i18n.monthsShort[_this56.date.getMonth()];
           },
           mmmm: function () {
-            return _this4.options.i18n.months[_this4.date.getMonth()];
+            return _this56.options.i18n.months[_this56.date.getMonth()];
           },
           yy: function () {
-            return ('' + _this4.date.getFullYear()).slice(2);
+            return ('' + _this56.date.getFullYear()).slice(2);
           },
           yyyy: function () {
-            return _this4.date.getFullYear();
+            return _this56.date.getFullYear();
           }
         };
       }
@@ -21128,7 +20430,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('click', this._handleInputClickBound);
         this.el.removeEventListener('keydown', this._handleInputKeydownBound);
@@ -21136,12 +20438,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.calendarEl.removeEventListener('click', this._handleCalendarClickBound);
       }
     }, {
-      key: '_handleInputClick',
+      key: "_handleInputClick",
       value: function _handleInputClick() {
         this.open();
       }
     }, {
-      key: '_handleInputKeydown',
+      key: "_handleInputKeydown",
       value: function _handleInputKeydown(e) {
         if (e.which === M.keys.ENTER) {
           e.preventDefault();
@@ -21149,7 +20451,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleCalendarClick',
+      key: "_handleCalendarClick",
       value: function _handleCalendarClick(e) {
         if (!this.isOpen) {
           return;
@@ -21170,19 +20472,19 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleClearClick',
+      key: "_handleClearClick",
       value: function _handleClearClick() {
         this.date = null;
         this.setInputValue();
         this.close();
       }
     }, {
-      key: '_handleMonthChange',
+      key: "_handleMonthChange",
       value: function _handleMonthChange(e) {
         this.gotoMonth(e.target.value);
       }
     }, {
-      key: '_handleYearChange',
+      key: "_handleYearChange",
       value: function _handleYearChange(e) {
         this.gotoYear(e.target.value);
       }
@@ -21192,7 +20494,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'gotoMonth',
+      key: "gotoMonth",
       value: function gotoMonth(month) {
         if (!isNaN(month)) {
           this.calendars[0].month = parseInt(month, 10);
@@ -21205,7 +20507,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'gotoYear',
+      key: "gotoYear",
       value: function gotoYear(year) {
         if (!isNaN(year)) {
           this.calendars[0].year = parseInt(year, 10);
@@ -21213,7 +20515,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleInputChange',
+      key: "_handleInputChange",
       value: function _handleInputChange(e) {
         var date = void 0;
 
@@ -21232,7 +20534,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'renderDayName',
+      key: "renderDayName",
       value: function renderDayName(opts, day, abbr) {
         day += opts.firstDay;
         while (day >= 7) {
@@ -21246,7 +20548,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_finishSelection',
+      key: "_finishSelection",
       value: function _finishSelection() {
         this.setInputValue();
         this.close();
@@ -21257,7 +20559,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen) {
           return;
@@ -21277,7 +20579,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -21291,46 +20593,46 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return this;
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Datepicker.__proto__ || Object.getPrototypeOf(Datepicker), 'init', this).call(this, this, els, options);
+        return _get(Datepicker.__proto__ || Object.getPrototypeOf(Datepicker), "init", this).call(this, this, els, options);
       }
     }, {
-      key: '_isDate',
+      key: "_isDate",
       value: function _isDate(obj) {
         return (/Date/.test(Object.prototype.toString.call(obj)) && !isNaN(obj.getTime())
         );
       }
     }, {
-      key: '_isWeekend',
+      key: "_isWeekend",
       value: function _isWeekend(date) {
         var day = date.getDay();
         return day === 0 || day === 6;
       }
     }, {
-      key: '_setToStartOfDay',
+      key: "_setToStartOfDay",
       value: function _setToStartOfDay(date) {
         if (Datepicker._isDate(date)) date.setHours(0, 0, 0, 0);
       }
     }, {
-      key: '_getDaysInMonth',
+      key: "_getDaysInMonth",
       value: function _getDaysInMonth(year, month) {
         return [31, Datepicker._isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month];
       }
     }, {
-      key: '_isLeapYear',
+      key: "_isLeapYear",
       value: function _isLeapYear(year) {
         // solution by Matti Virkkunen: http://stackoverflow.com/a/4881951
         return year % 4 === 0 && year % 100 !== 0 || year % 400 === 0;
       }
     }, {
-      key: '_compareDates',
+      key: "_compareDates",
       value: function _compareDates(a, b) {
         // weak date comparison (use setToStartOfDay(date) to ensure correct result)
         return a.getTime() === b.getTime();
       }
     }, {
-      key: '_setToStartOfDay',
+      key: "_setToStartOfDay",
       value: function _setToStartOfDay(date) {
         if (Datepicker._isDate(date)) date.setHours(0, 0, 0, 0);
       }
@@ -21340,13 +20642,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Datepicker;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -21363,17 +20665,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Datepicker, 'datepicker', 'M_Datepicker');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -21411,31 +20703,31 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Timepicker = function (_Component) {
-    _inherits(Timepicker, _Component);
+  var Timepicker = function (_Component16) {
+    _inherits(Timepicker, _Component16);
 
     function Timepicker(el, options) {
       _classCallCheck(this, Timepicker);
 
-      var _this = _possibleConstructorReturn(this, (Timepicker.__proto__ || Object.getPrototypeOf(Timepicker)).call(this, Timepicker, el, options));
+      var _this57 = _possibleConstructorReturn(this, (Timepicker.__proto__ || Object.getPrototypeOf(Timepicker)).call(this, Timepicker, el, options));
 
-      _this.el.M_Timepicker = _this;
+      _this57.el.M_Timepicker = _this57;
 
-      _this.options = $.extend({}, Timepicker.defaults, options);
+      _this57.options = $.extend({}, Timepicker.defaults, options);
 
-      _this.id = M.guid();
-      _this._insertHTMLIntoDOM();
-      _this._setupModal();
-      _this._setupVariables();
-      _this._setupEventHandlers();
+      _this57.id = M.guid();
+      _this57._insertHTMLIntoDOM();
+      _this57._setupModal();
+      _this57._setupVariables();
+      _this57._setupEventHandlers();
 
-      _this._clockSetup();
-      _this._pickerSetup();
-      return _this;
+      _this57._clockSetup();
+      _this57._pickerSetup();
+      return _this57;
     }
 
     _createClass(Timepicker, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -21453,7 +20745,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleInputKeydownBound = this._handleInputKeydown.bind(this);
         this._handleInputClickBound = this._handleInputClick.bind(this);
@@ -21470,18 +20762,18 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         $(this.spanMinutes).on('click', this.showView.bind(this, 'minutes'));
       }
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('click', this._handleInputClickBound);
         this.el.removeEventListener('keydown', this._handleInputKeydownBound);
       }
     }, {
-      key: '_handleInputClick',
+      key: "_handleInputClick",
       value: function _handleInputClick() {
         this.open();
       }
     }, {
-      key: '_handleInputKeydown',
+      key: "_handleInputKeydown",
       value: function _handleInputKeydown(e) {
         if (e.which === M.keys.ENTER) {
           e.preventDefault();
@@ -21489,7 +20781,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleClockClickStart',
+      key: "_handleClockClickStart",
       value: function _handleClockClickStart(e) {
         e.preventDefault();
         var clockPlateBR = this.plate.getBoundingClientRect();
@@ -21514,7 +20806,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         document.addEventListener('touchend', this._handleDocumentClickEndBound);
       }
     }, {
-      key: '_handleDocumentClickMove',
+      key: "_handleDocumentClickMove",
       value: function _handleDocumentClickMove(e) {
         e.preventDefault();
         var clickPos = Timepicker._Pos(e);
@@ -21524,9 +20816,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.setHand(x, y, false, true);
       }
     }, {
-      key: '_handleDocumentClickEnd',
+      key: "_handleDocumentClickEnd",
       value: function _handleDocumentClickEnd(e) {
-        var _this2 = this;
+        var _this58 = this;
 
         e.preventDefault();
         document.removeEventListener('mouseup', this._handleDocumentClickEndBound);
@@ -21543,7 +20835,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         } else if (this.options.autoClose) {
           $(this.minutesView).addClass('timepicker-dial-out');
           setTimeout(function () {
-            _this2.done();
+            _this58.done();
           }, this.options.duration / 2);
         }
 
@@ -21556,7 +20848,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         document.removeEventListener('touchmove', this._handleDocumentClickMoveBound);
       }
     }, {
-      key: '_insertHTMLIntoDOM',
+      key: "_insertHTMLIntoDOM",
       value: function _insertHTMLIntoDOM() {
         this.$modalEl = $(Timepicker._template);
         this.modalEl = this.$modalEl[0];
@@ -21571,24 +20863,24 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_setupModal',
+      key: "_setupModal",
       value: function _setupModal() {
-        var _this3 = this;
+        var _this59 = this;
 
         this.modal = M.Modal.init(this.modalEl, {
           onOpenStart: this.options.onOpenStart,
           onOpenEnd: this.options.onOpenEnd,
           onCloseStart: this.options.onCloseStart,
           onCloseEnd: function () {
-            if (typeof _this3.options.onCloseEnd === 'function') {
-              _this3.options.onCloseEnd.call(_this3);
+            if (typeof _this59.options.onCloseEnd === 'function') {
+              _this59.options.onCloseEnd.call(_this59);
             }
-            _this3.isOpen = false;
+            _this59.isOpen = false;
           }
         });
       }
     }, {
-      key: '_setupVariables',
+      key: "_setupVariables",
       value: function _setupVariables() {
         this.currentView = 'hours';
         this.vibrate = navigator.vibrate ? 'vibrate' : navigator.webkitVibrate ? 'webkitVibrate' : null;
@@ -21605,9 +20897,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.amOrPm = 'PM';
       }
     }, {
-      key: '_pickerSetup',
+      key: "_pickerSetup",
       value: function _pickerSetup() {
-        var $clearBtn = $('<button class="btn-flat timepicker-clear waves-effect" style="visibility: hidden;" type="button" tabindex="' + (this.options.twelveHour ? '3' : '1') + '">' + this.options.i18n.clear + '</button>').appendTo(this.footer).on('click', this.clear.bind(this));
+        var $clearBtn = $("<button class=\"btn-flat timepicker-clear waves-effect\" style=\"visibility: hidden;\" type=\"button\" tabindex=\"" + (this.options.twelveHour ? '3' : '1') + "\">" + this.options.i18n.clear + "</button>").appendTo(this.footer).on('click', this.clear.bind(this));
         if (this.options.showClearBtn) {
           $clearBtn.css({ visibility: '' });
         }
@@ -21618,7 +20910,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         confirmationBtnsContainer.appendTo(this.footer);
       }
     }, {
-      key: '_clockSetup',
+      key: "_clockSetup",
       value: function _clockSetup() {
         if (this.options.twelveHour) {
           this.$amBtn = $('<div class="am-btn">AM</div>');
@@ -21632,7 +20924,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._buildSVGClock();
       }
     }, {
-      key: '_buildSVGClock',
+      key: "_buildSVGClock",
       value: function _buildSVGClock() {
         // Draw clock hands and others
         var dialRadius = this.options.dialRadius;
@@ -21668,7 +20960,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.g = g;
       }
     }, {
-      key: '_buildHoursView',
+      key: "_buildHoursView",
       value: function _buildHoursView() {
         var $tick = $('<div class="timepicker-tick"></div>');
         // Hours view
@@ -21686,23 +20978,23 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             // tick.on(mousedownEvent, mousedown);
           }
         } else {
-          for (var _i = 0; _i < 24; _i += 1) {
+          for (var _i2 = 0; _i2 < 24; _i2 += 1) {
             var _tick = $tick.clone();
-            var _radian = _i / 6 * Math.PI;
-            var inner = _i > 0 && _i < 13;
+            var _radian = _i2 / 6 * Math.PI;
+            var inner = _i2 > 0 && _i2 < 13;
             var _radius = inner ? this.options.innerRadius : this.options.outerRadius;
             _tick.css({
               left: this.options.dialRadius + Math.sin(_radian) * _radius - this.options.tickRadius + 'px',
               top: this.options.dialRadius - Math.cos(_radian) * _radius - this.options.tickRadius + 'px'
             });
-            _tick.html(_i === 0 ? '00' : _i);
+            _tick.html(_i2 === 0 ? '00' : _i2);
             this.hoursView.appendChild(_tick[0]);
             // tick.on(mousedownEvent, mousedown);
           }
         }
       }
     }, {
-      key: '_buildMinutesView',
+      key: "_buildMinutesView",
       value: function _buildMinutesView() {
         var $tick = $('<div class="timepicker-tick"></div>');
         // Minutes view
@@ -21718,14 +21010,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_handleAmPmClick',
+      key: "_handleAmPmClick",
       value: function _handleAmPmClick(e) {
         var $btnClicked = $(e.target);
         this.amOrPm = $btnClicked.hasClass('am-btn') ? 'AM' : 'PM';
         this._updateAmPmView();
       }
     }, {
-      key: '_updateAmPmView',
+      key: "_updateAmPmView",
       value: function _updateAmPmView() {
         if (this.options.twelveHour) {
           this.$amBtn.toggleClass('text-primary', this.amOrPm === 'AM');
@@ -21733,7 +21025,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: '_updateTimeFromInput',
+      key: "_updateTimeFromInput",
       value: function _updateTimeFromInput() {
         // Get the time
         var value = ((this.el.value || this.options.defaultTime || '') + '').split(':');
@@ -21760,7 +21052,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._updateAmPmView();
       }
     }, {
-      key: 'showView',
+      key: "showView",
       value: function showView(view, delay) {
         if (view === 'minutes' && $(this.hoursView).css('visibility') === 'visible') {
           // raiseCallback(this.options.beforeHourSelect);
@@ -21787,7 +21079,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }, this.options.duration);
       }
     }, {
-      key: 'resetClock',
+      key: "resetClock",
       value: function resetClock(delay) {
         var view = this.currentView,
             value = this[view],
@@ -21810,9 +21102,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }, {
-      key: 'setHand',
+      key: "setHand",
       value: function setHand(x, y, roundBy5) {
-        var _this4 = this;
+        var _this60 = this;
 
         var radian = Math.atan2(x, -y),
             isHours = this.currentView === 'hours',
@@ -21867,7 +21159,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             if (!this.vibrateTimer) {
               navigator[this.vibrate](10);
               this.vibrateTimer = setTimeout(function () {
-                _this4.vibrateTimer = null;
+                _this60.vibrateTimer = null;
               }, 100);
             }
           }
@@ -21891,7 +21183,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.bg.setAttribute('cy', cy2);
       }
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen) {
           return;
@@ -21904,7 +21196,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.modal.open();
       }
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -21919,14 +21211,14 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'done',
+      key: "done",
       value: function done(e, clearValue) {
         // Set input value
         var last = this.el.value;
         var value = clearValue ? '' : Timepicker._addLeadingZero(this.hours) + ':' + Timepicker._addLeadingZero(this.minutes);
         this.time = value;
         if (!clearValue && this.options.twelveHour) {
-          value = value + ' ' + this.amOrPm;
+          value = value + " " + this.amOrPm;
         }
         this.el.value = value;
 
@@ -21939,22 +21231,22 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this.el.focus();
       }
     }, {
-      key: 'clear',
+      key: "clear",
       value: function clear() {
         this.done(null, true);
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Timepicker.__proto__ || Object.getPrototypeOf(Timepicker), 'init', this).call(this, this, els, options);
+        return _get(Timepicker.__proto__ || Object.getPrototypeOf(Timepicker), "init", this).call(this, this, els, options);
       }
     }, {
-      key: '_addLeadingZero',
+      key: "_addLeadingZero",
       value: function _addLeadingZero(num) {
         return (num < 10 ? '0' : '') + num;
       }
     }, {
-      key: '_createSVGEl',
+      key: "_createSVGEl",
       value: function _createSVGEl(name) {
         var svgNS = 'http://www.w3.org/2000/svg';
         return document.createElementNS(svgNS, name);
@@ -21973,7 +21265,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_Pos',
+      key: "_Pos",
       value: function _Pos(e) {
         if (e.targetTouches && e.targetTouches.length >= 1) {
           return { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY };
@@ -21987,13 +21279,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Timepicker;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -22010,17 +21302,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Timepicker, 'timepicker', 'M_Timepicker');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {};
@@ -22030,8 +21312,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var CharacterCounter = function (_Component) {
-    _inherits(CharacterCounter, _Component);
+  var CharacterCounter = function (_Component17) {
+    _inherits(CharacterCounter, _Component17);
 
     /**
      * Construct CharacterCounter instance
@@ -22042,24 +21324,24 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function CharacterCounter(el, options) {
       _classCallCheck(this, CharacterCounter);
 
-      var _this = _possibleConstructorReturn(this, (CharacterCounter.__proto__ || Object.getPrototypeOf(CharacterCounter)).call(this, CharacterCounter, el, options));
+      var _this61 = _possibleConstructorReturn(this, (CharacterCounter.__proto__ || Object.getPrototypeOf(CharacterCounter)).call(this, CharacterCounter, el, options));
 
-      _this.el.M_CharacterCounter = _this;
+      _this61.el.M_CharacterCounter = _this61;
 
       /**
        * Options for the character counter
        */
-      _this.options = $.extend({}, CharacterCounter.defaults, options);
+      _this61.options = $.extend({}, CharacterCounter.defaults, options);
 
-      _this.isInvalid = false;
-      _this.isValidLength = false;
-      _this._setupCounter();
-      _this._setupEventHandlers();
-      return _this;
+      _this61.isInvalid = false;
+      _this61.isValidLength = false;
+      _this61._setupCounter();
+      _this61._setupEventHandlers();
+      return _this61;
     }
 
     _createClass(CharacterCounter, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -22076,7 +21358,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleUpdateCounterBound = this.updateCounter.bind(this);
 
@@ -22089,7 +21371,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('focus', this._handleUpdateCounterBound, true);
         this.el.removeEventListener('input', this._handleUpdateCounterBound, true);
@@ -22100,7 +21382,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupCounter',
+      key: "_setupCounter",
       value: function _setupCounter() {
         this.counterEl = document.createElement('span');
         $(this.counterEl).addClass('character-counter').css({
@@ -22117,7 +21399,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeCounter',
+      key: "_removeCounter",
       value: function _removeCounter() {
         $(this.counterEl).remove();
       }
@@ -22127,7 +21409,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'updateCounter',
+      key: "updateCounter",
       value: function updateCounter() {
         var maxLength = +this.$el.attr('data-length'),
             actualLength = this.el.value.length;
@@ -22147,7 +21429,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_validateInput',
+      key: "_validateInput",
       value: function _validateInput() {
         if (this.isValidLength && this.isInvalid) {
           this.isInvalid = false;
@@ -22159,9 +21441,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         }
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(CharacterCounter.__proto__ || Object.getPrototypeOf(CharacterCounter), 'init', this).call(this, this, els, options);
+        return _get(CharacterCounter.__proto__ || Object.getPrototypeOf(CharacterCounter), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -22169,13 +21451,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_CharacterCounter;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -22190,17 +21472,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(CharacterCounter, 'characterCounter', 'M_CharacterCounter');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -22220,8 +21492,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Carousel = function (_Component) {
-    _inherits(Carousel, _Component);
+  var Carousel = function (_Component18) {
+    _inherits(Carousel, _Component18);
 
     /**
      * Construct Carousel instance
@@ -22232,9 +21504,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Carousel(el, options) {
       _classCallCheck(this, Carousel);
 
-      var _this = _possibleConstructorReturn(this, (Carousel.__proto__ || Object.getPrototypeOf(Carousel)).call(this, Carousel, el, options));
+      var _this62 = _possibleConstructorReturn(this, (Carousel.__proto__ || Object.getPrototypeOf(Carousel)).call(this, Carousel, el, options));
 
-      _this.el.M_Carousel = _this;
+      _this62.el.M_Carousel = _this62;
 
       /**
        * Options for the carousel
@@ -22249,38 +21521,38 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Boolean} noWrap
        * @prop {Function} onCycleTo
        */
-      _this.options = $.extend({}, Carousel.defaults, options);
+      _this62.options = $.extend({}, Carousel.defaults, options);
 
       // Setup
-      _this.hasMultipleSlides = _this.$el.find('.carousel-item').length > 1;
-      _this.showIndicators = _this.options.indicators && _this.hasMultipleSlides;
-      _this.noWrap = _this.options.noWrap || !_this.hasMultipleSlides;
-      _this.pressed = false;
-      _this.dragged = false;
-      _this.offset = _this.target = 0;
-      _this.images = [];
-      _this.itemWidth = _this.$el.find('.carousel-item').first().innerWidth();
-      _this.itemHeight = _this.$el.find('.carousel-item').first().innerHeight();
-      _this.dim = _this.itemWidth * 2 + _this.options.padding || 1; // Make sure dim is non zero for divisions.
-      _this._autoScrollBound = _this._autoScroll.bind(_this);
-      _this._trackBound = _this._track.bind(_this);
+      _this62.hasMultipleSlides = _this62.$el.find('.carousel-item').length > 1;
+      _this62.showIndicators = _this62.options.indicators && _this62.hasMultipleSlides;
+      _this62.noWrap = _this62.options.noWrap || !_this62.hasMultipleSlides;
+      _this62.pressed = false;
+      _this62.dragged = false;
+      _this62.offset = _this62.target = 0;
+      _this62.images = [];
+      _this62.itemWidth = _this62.$el.find('.carousel-item').first().innerWidth();
+      _this62.itemHeight = _this62.$el.find('.carousel-item').first().innerHeight();
+      _this62.dim = _this62.itemWidth * 2 + _this62.options.padding || 1; // Make sure dim is non zero for divisions.
+      _this62._autoScrollBound = _this62._autoScroll.bind(_this62);
+      _this62._trackBound = _this62._track.bind(_this62);
 
       // Full Width carousel setup
-      if (_this.options.fullWidth) {
-        _this.options.dist = 0;
-        _this._setCarouselHeight();
+      if (_this62.options.fullWidth) {
+        _this62.options.dist = 0;
+        _this62._setCarouselHeight();
 
         // Offset fixed items when indicators.
-        if (_this.showIndicators) {
-          _this.$el.find('.carousel-fixed-item').addClass('with-indicators');
+        if (_this62.showIndicators) {
+          _this62.$el.find('.carousel-fixed-item').addClass('with-indicators');
         }
       }
 
       // Iterate through slides
-      _this.$indicators = $('<ul class="indicators"></ul>');
-      _this.$el.find('.carousel-item').each(function (el, i) {
-        _this.images.push(el);
-        if (_this.showIndicators) {
+      _this62.$indicators = $('<ul class="indicators"></ul>');
+      _this62.$el.find('.carousel-item').each(function (el, i) {
+        _this62.images.push(el);
+        if (_this62.showIndicators) {
           var $indicator = $('<li class="indicator-item"></li>');
 
           // Add active to first by default.
@@ -22288,35 +21560,35 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             $indicator[0].classList.add('active');
           }
 
-          _this.$indicators.append($indicator);
+          _this62.$indicators.append($indicator);
         }
       });
-      if (_this.showIndicators) {
-        _this.$el.append(_this.$indicators);
+      if (_this62.showIndicators) {
+        _this62.$el.append(_this62.$indicators);
       }
-      _this.count = _this.images.length;
+      _this62.count = _this62.images.length;
 
       // Cap numVisible at count
-      _this.options.numVisible = Math.min(_this.count, _this.options.numVisible);
+      _this62.options.numVisible = Math.min(_this62.count, _this62.options.numVisible);
 
       // Setup cross browser string
-      _this.xform = 'transform';
+      _this62.xform = 'transform';
       ['webkit', 'Moz', 'O', 'ms'].every(function (prefix) {
         var e = prefix + 'Transform';
         if (typeof document.body.style[e] !== 'undefined') {
-          _this.xform = e;
+          _this62.xform = e;
           return false;
         }
         return true;
       });
 
-      _this._setupEventHandlers();
-      _this._scroll(_this.offset);
-      return _this;
+      _this62._setupEventHandlers();
+      _this62._scroll(_this62.offset);
+      return _this62;
     }
 
     _createClass(Carousel, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -22332,9 +21604,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
-        var _this2 = this;
+        var _this63 = this;
 
         this._handleCarouselTapBound = this._handleCarouselTap.bind(this);
         this._handleCarouselDragBound = this._handleCarouselDrag.bind(this);
@@ -22356,7 +21628,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         if (this.showIndicators && this.$indicators) {
           this._handleIndicatorClickBound = this._handleIndicatorClick.bind(this);
           this.$indicators.find('.indicator-item').each(function (el, i) {
-            el.addEventListener('click', _this2._handleIndicatorClickBound);
+            el.addEventListener('click', _this63._handleIndicatorClickBound);
           });
         }
 
@@ -22372,9 +21644,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
-        var _this3 = this;
+        var _this64 = this;
 
         if (typeof window.ontouchstart !== 'undefined') {
           this.el.removeEventListener('touchstart', this._handleCarouselTapBound);
@@ -22389,7 +21661,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
         if (this.showIndicators && this.$indicators) {
           this.$indicators.find('.indicator-item').each(function (el, i) {
-            el.removeEventListener('click', _this3._handleIndicatorClickBound);
+            el.removeEventListener('click', _this64._handleIndicatorClickBound);
           });
         }
 
@@ -22402,7 +21674,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCarouselTap',
+      key: "_handleCarouselTap",
       value: function _handleCarouselTap(e) {
         // Fixes firefox draggable image bug
         if (e.type === 'mousedown' && $(e.target).is('img')) {
@@ -22427,7 +21699,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCarouselDrag',
+      key: "_handleCarouselDrag",
       value: function _handleCarouselDrag(e) {
         var x = void 0,
             y = void 0,
@@ -22470,7 +21742,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCarouselRelease',
+      key: "_handleCarouselRelease",
       value: function _handleCarouselRelease(e) {
         if (this.pressed) {
           this.pressed = false;
@@ -22511,7 +21783,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleCarouselClick',
+      key: "_handleCarouselClick",
       value: function _handleCarouselClick(e) {
         // Disable clicks if carousel was dragged.
         if (this.dragged) {
@@ -22537,7 +21809,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleIndicatorClick',
+      key: "_handleIndicatorClick",
       value: function _handleIndicatorClick(e) {
         e.stopPropagation();
 
@@ -22553,7 +21825,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleResize',
+      key: "_handleResize",
       value: function _handleResize(e) {
         if (this.options.fullWidth) {
           this.itemWidth = this.$el.find('.carousel-item').first().innerWidth();
@@ -22573,9 +21845,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setCarouselHeight',
+      key: "_setCarouselHeight",
       value: function _setCarouselHeight(imageOnly) {
-        var _this4 = this;
+        var _this65 = this;
 
         var firstSlide = this.$el.find('.carousel-item.active').length ? this.$el.find('.carousel-item.active').first() : this.$el.find('.carousel-item').first();
         var firstImage = firstSlide.find('img').first();
@@ -22595,7 +21867,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           } else {
             // Get height when image is loaded normally
             firstImage.one('load', function (el, i) {
-              _this4.$el.css('height', el.offsetHeight + 'px');
+              _this65.$el.css('height', el.offsetHeight + 'px');
             });
           }
         } else if (!imageOnly) {
@@ -22610,7 +21882,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_xpos',
+      key: "_xpos",
       value: function _xpos(e) {
         // touch event
         if (e.targetTouches && e.targetTouches.length >= 1) {
@@ -22627,7 +21899,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_ypos',
+      key: "_ypos",
       value: function _ypos(e) {
         // touch event
         if (e.targetTouches && e.targetTouches.length >= 1) {
@@ -22644,7 +21916,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_wrap',
+      key: "_wrap",
       value: function _wrap(x) {
         return x >= this.count ? x % this.count : x < 0 ? this._wrap(this.count + x % this.count) : x;
       }
@@ -22654,7 +21926,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_track',
+      key: "_track",
       value: function _track() {
         var now = void 0,
             elapsed = void 0,
@@ -22676,7 +21948,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_autoScroll',
+      key: "_autoScroll",
       value: function _autoScroll() {
         var elapsed = void 0,
             delta = void 0;
@@ -22699,9 +21971,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_scroll',
+      key: "_scroll",
       value: function _scroll(x) {
-        var _this5 = this;
+        var _this66 = this;
 
         // Track scrolling state
         if (!this.$el.hasClass('scrolling')) {
@@ -22711,7 +21983,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           window.clearTimeout(this.scrollingTimeout);
         }
         this.scrollingTimeout = window.setTimeout(function () {
-          _this5.$el.removeClass('scrolling');
+          _this66.$el.removeClass('scrolling');
         }, this.options.duration);
 
         // Start actual scroll
@@ -22764,7 +22036,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             this.$el.find('.carousel-item').removeClass('active');
             el.classList.add('active');
           }
-          var transformString = alignment + ' translateX(' + -delta / 2 + 'px) translateX(' + dir * this.options.shift * tween * i + 'px) translateZ(' + this.options.dist * tween + 'px)';
+          var transformString = alignment + " translateX(" + -delta / 2 + "px) translateX(" + dir * this.options.shift * tween * i + "px) translateZ(" + this.options.dist * tween + "px)";
           this._updateItemStyle(el, centerTweenedOpacity, 0, transformString);
         }
 
@@ -22780,7 +22052,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           // Don't show wrapped items.
           if (!this.noWrap || this.center + i < this.count) {
             el = this.images[this._wrap(this.center + i)];
-            var _transformString = alignment + ' translateX(' + (this.options.shift + (this.dim * i - delta) / 2) + 'px) translateZ(' + zTranslation + 'px)';
+            var _transformString = alignment + " translateX(" + (this.options.shift + (this.dim * i - delta) / 2) + "px) translateZ(" + zTranslation + "px)";
             this._updateItemStyle(el, tweenedOpacity, -i, _transformString);
           }
 
@@ -22795,7 +22067,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
           // Don't show wrapped items.
           if (!this.noWrap || this.center - i >= 0) {
             el = this.images[this._wrap(this.center - i)];
-            var _transformString2 = alignment + ' translateX(' + (-this.options.shift + (-this.dim * i - delta) / 2) + 'px) translateZ(' + zTranslation + 'px)';
+            var _transformString2 = alignment + " translateX(" + (-this.options.shift + (-this.dim * i - delta) / 2) + "px) translateZ(" + zTranslation + "px)";
             this._updateItemStyle(el, tweenedOpacity, -i, _transformString2);
           }
         }
@@ -22804,7 +22076,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         // Don't show wrapped items.
         if (!this.noWrap || this.center >= 0 && this.center < this.count) {
           el = this.images[this._wrap(this.center)];
-          var _transformString3 = alignment + ' translateX(' + -delta / 2 + 'px) translateX(' + dir * this.options.shift * tween + 'px) translateZ(' + this.options.dist * tween + 'px)';
+          var _transformString3 = alignment + " translateX(" + -delta / 2 + "px) translateX(" + dir * this.options.shift * tween + "px) translateZ(" + this.options.dist * tween + "px)";
           this._updateItemStyle(el, centerTweenedOpacity, 0, _transformString3);
         }
 
@@ -22830,7 +22102,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_updateItemStyle',
+      key: "_updateItemStyle",
       value: function _updateItemStyle(el, opacity, zIndex, transform) {
         el.style[this.xform] = transform;
         el.style.zIndex = zIndex;
@@ -22845,7 +22117,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_cycleTo',
+      key: "_cycleTo",
       value: function _cycleTo(n, callback) {
         var diff = this.center % this.count - n;
 
@@ -22891,7 +22163,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'next',
+      key: "next",
       value: function next(n) {
         if (n === undefined || isNaN(n)) {
           n = 1;
@@ -22914,7 +22186,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'prev',
+      key: "prev",
       value: function prev(n) {
         if (n === undefined || isNaN(n)) {
           n = 1;
@@ -22939,7 +22211,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'set',
+      key: "set",
       value: function set(n, callback) {
         if (n === undefined || isNaN(n)) {
           n = 0;
@@ -22956,9 +22228,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         this._cycleTo(n, callback);
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Carousel.__proto__ || Object.getPrototypeOf(Carousel), 'init', this).call(this, this, els, options);
+        return _get(Carousel.__proto__ || Object.getPrototypeOf(Carousel), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -22966,13 +22238,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Carousel;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -22987,17 +22259,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(Carousel, 'carousel', 'M_Carousel');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -23010,8 +22272,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var TapTarget = function (_Component) {
-    _inherits(TapTarget, _Component);
+  var TapTarget = function (_Component19) {
+    _inherits(TapTarget, _Component19);
 
     /**
      * Construct TapTarget instance
@@ -23022,9 +22284,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function TapTarget(el, options) {
       _classCallCheck(this, TapTarget);
 
-      var _this = _possibleConstructorReturn(this, (TapTarget.__proto__ || Object.getPrototypeOf(TapTarget)).call(this, TapTarget, el, options));
+      var _this67 = _possibleConstructorReturn(this, (TapTarget.__proto__ || Object.getPrototypeOf(TapTarget)).call(this, TapTarget, el, options));
 
-      _this.el.M_TapTarget = _this;
+      _this67.el.M_TapTarget = _this67;
 
       /**
        * Options for the select
@@ -23032,21 +22294,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        * @prop {Function} onOpen - Callback function called when feature discovery is opened
        * @prop {Function} onClose - Callback function called when feature discovery is closed
        */
-      _this.options = $.extend({}, TapTarget.defaults, options);
+      _this67.options = $.extend({}, TapTarget.defaults, options);
 
-      _this.isOpen = false;
+      _this67.isOpen = false;
 
       // setup
-      _this.$origin = $('#' + _this.$el.attr('data-target'));
-      _this._setup();
+      _this67.$origin = $('#' + _this67.$el.attr('data-target'));
+      _this67._setup();
 
-      _this._calculatePositioning();
-      _this._setupEventHandlers();
-      return _this;
+      _this67._calculatePositioning();
+      _this67._setupEventHandlers();
+      return _this67;
     }
 
     _createClass(TapTarget, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -23062,7 +22324,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleDocumentClickBound = this._handleDocumentClick.bind(this);
         this._handleTargetClickBound = this._handleTargetClick.bind(this);
@@ -23083,7 +22345,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('click', this._handleTargetClickBound);
         this.originEl.removeEventListener('click', this._handleOriginClickBound);
@@ -23096,7 +22358,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleTargetClick',
+      key: "_handleTargetClick",
       value: function _handleTargetClick(e) {
         this.open();
       }
@@ -23107,7 +22369,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleOriginClick',
+      key: "_handleOriginClick",
       value: function _handleOriginClick(e) {
         this.close();
       }
@@ -23118,7 +22380,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleResize',
+      key: "_handleResize",
       value: function _handleResize(e) {
         this._calculatePositioning();
       }
@@ -23129,7 +22391,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleDocumentClick',
+      key: "_handleDocumentClick",
       value: function _handleDocumentClick(e) {
         if (!$(e.target).closest('.tap-target-wrapper').length) {
           this.close();
@@ -23143,7 +22405,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setup',
+      key: "_setup",
       value: function _setup() {
         // Creating tap target
         this.wrapper = this.$el.parent()[0];
@@ -23190,7 +22452,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_calculatePositioning',
+      key: "_calculatePositioning",
       value: function _calculatePositioning() {
         // Element or parent is fixed position?
         var isFixed = this.$origin.css('position') === 'fixed';
@@ -23279,7 +22541,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'open',
+      key: "open",
       value: function open() {
         if (this.isOpen) {
           return;
@@ -23302,7 +22564,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'close',
+      key: "close",
       value: function close() {
         if (!this.isOpen) {
           return;
@@ -23320,9 +22582,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         document.body.removeEventListener('touchend', this._handleDocumentClickBound);
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(TapTarget.__proto__ || Object.getPrototypeOf(TapTarget), 'init', this).call(this, this, els, options);
+        return _get(TapTarget.__proto__ || Object.getPrototypeOf(TapTarget), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -23330,13 +22592,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_TapTarget;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -23351,17 +22613,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(TapTarget, 'tapTarget', 'M_TapTarget');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($) {
+;(function ($) {
   'use strict';
 
   var _defaults = {
@@ -23374,8 +22626,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var FormSelect = function (_Component) {
-    _inherits(FormSelect, _Component);
+  var FormSelect = function (_Component20) {
+    _inherits(FormSelect, _Component20);
 
     /**
      * Construct FormSelect instance
@@ -23387,34 +22639,34 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
       _classCallCheck(this, FormSelect);
 
       // Don't init if browser default version
-      var _this = _possibleConstructorReturn(this, (FormSelect.__proto__ || Object.getPrototypeOf(FormSelect)).call(this, FormSelect, el, options));
+      var _this68 = _possibleConstructorReturn(this, (FormSelect.__proto__ || Object.getPrototypeOf(FormSelect)).call(this, FormSelect, el, options));
 
-      if (_this.$el.hasClass('browser-default')) {
-        return _possibleConstructorReturn(_this);
+      if (_this68.$el.hasClass('browser-default')) {
+        return _possibleConstructorReturn(_this68);
       }
 
-      _this.el.M_FormSelect = _this;
+      _this68.el.M_FormSelect = _this68;
 
       /**
        * Options for the select
        * @member FormSelect#options
        */
-      _this.options = $.extend({}, FormSelect.defaults, options);
+      _this68.options = $.extend({}, FormSelect.defaults, options);
 
-      _this.isMultiple = _this.$el.prop('multiple');
+      _this68.isMultiple = _this68.$el.prop('multiple');
 
       // Setup
-      _this.el.tabIndex = -1;
-      _this._keysSelected = {};
-      _this._valueDict = {}; // Maps key to original and generated option element.
-      _this._setupDropdown();
+      _this68.el.tabIndex = -1;
+      _this68._keysSelected = {};
+      _this68._valueDict = {}; // Maps key to original and generated option element.
+      _this68._setupDropdown();
 
-      _this._setupEventHandlers();
-      return _this;
+      _this68._setupEventHandlers();
+      return _this68;
     }
 
     _createClass(FormSelect, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -23431,16 +22683,16 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
-        var _this2 = this;
+        var _this69 = this;
 
         this._handleSelectChangeBound = this._handleSelectChange.bind(this);
         this._handleOptionClickBound = this._handleOptionClick.bind(this);
         this._handleInputClickBound = this._handleInputClick.bind(this);
 
         $(this.dropdownOptions).find('li:not(.optgroup)').each(function (el) {
-          el.addEventListener('click', _this2._handleOptionClickBound);
+          el.addEventListener('click', _this69._handleOptionClickBound);
         });
         this.el.addEventListener('change', this._handleSelectChangeBound);
         this.input.addEventListener('click', this._handleInputClickBound);
@@ -23451,12 +22703,12 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
-        var _this3 = this;
+        var _this70 = this;
 
         $(this.dropdownOptions).find('li:not(.optgroup)').each(function (el) {
-          el.removeEventListener('click', _this3._handleOptionClickBound);
+          el.removeEventListener('click', _this70._handleOptionClickBound);
         });
         this.el.removeEventListener('change', this._handleSelectChangeBound);
         this.input.removeEventListener('click', this._handleInputClickBound);
@@ -23468,7 +22720,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleSelectChange',
+      key: "_handleSelectChange",
       value: function _handleSelectChange(e) {
         this._setValueToInput();
       }
@@ -23479,7 +22731,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleOptionClick',
+      key: "_handleOptionClick",
       value: function _handleOptionClick(e) {
         e.preventDefault();
         var option = $(e.target).closest('li')[0];
@@ -23518,7 +22770,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleInputClick',
+      key: "_handleInputClick",
       value: function _handleInputClick() {
         if (this.dropdown && this.dropdown.isOpen) {
           this._setValueToInput();
@@ -23531,9 +22783,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupDropdown',
+      key: "_setupDropdown",
       value: function _setupDropdown() {
-        var _this4 = this;
+        var _this71 = this;
 
         this.wrapper = document.createElement('div');
         $(this.wrapper).addClass('select-wrapper ' + this.options.classes);
@@ -23547,7 +22799,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         // Create dropdown
         this.$selectOptions = this.$el.children('option, optgroup');
         this.dropdownOptions = document.createElement('ul');
-        this.dropdownOptions.id = 'select-options-' + M.guid();
+        this.dropdownOptions.id = "select-options-" + M.guid();
         $(this.dropdownOptions).addClass('dropdown-content select-dropdown ' + (this.isMultiple ? 'multiple-select-dropdown' : ''));
 
         // Create dropdown structure.
@@ -23556,21 +22808,21 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
             if ($(el).is('option')) {
               // Direct descendant option.
               var optionEl = void 0;
-              if (_this4.isMultiple) {
-                optionEl = _this4._appendOptionWithIcon(_this4.$el, el, 'multiple');
+              if (_this71.isMultiple) {
+                optionEl = _this71._appendOptionWithIcon(_this71.$el, el, 'multiple');
               } else {
-                optionEl = _this4._appendOptionWithIcon(_this4.$el, el);
+                optionEl = _this71._appendOptionWithIcon(_this71.$el, el);
               }
 
-              _this4._addOptionToValueDict(el, optionEl);
+              _this71._addOptionToValueDict(el, optionEl);
             } else if ($(el).is('optgroup')) {
               // Optgroup.
               var selectOptions = $(el).children('option');
-              $(_this4.dropdownOptions).append($('<li class="optgroup"><span>' + el.getAttribute('label') + '</span></li>')[0]);
+              $(_this71.dropdownOptions).append($('<li class="optgroup"><span>' + el.getAttribute('label') + '</span></li>')[0]);
 
               selectOptions.each(function (el) {
-                var optionEl = _this4._appendOptionWithIcon(_this4.$el, el, 'optgroup-option');
-                _this4._addOptionToValueDict(el, optionEl);
+                var optionEl = _this71._appendOptionWithIcon(_this71.$el, el, 'optgroup-option');
+                _this71._addOptionToValueDict(el, optionEl);
               });
             }
           });
@@ -23601,20 +22853,20 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
           // Add callback for centering selected option when dropdown content is scrollable
           dropdownOptions.onOpenEnd = function (el) {
-            var selectedOption = $(_this4.dropdownOptions).find('.selected').first();
+            var selectedOption = $(_this71.dropdownOptions).find('.selected').first();
 
             if (selectedOption.length) {
               // Focus selected option in dropdown
               M.keyDown = true;
-              _this4.dropdown.focusedIndex = selectedOption.index();
-              _this4.dropdown._focusFocusedItem();
+              _this71.dropdown.focusedIndex = selectedOption.index();
+              _this71.dropdown._focusFocusedItem();
               M.keyDown = false;
 
               // Handle scrolling to selected option
-              if (_this4.dropdown.isScrollable) {
-                var scrollOffset = selectedOption[0].getBoundingClientRect().top - _this4.dropdownOptions.getBoundingClientRect().top; // scroll to selected option
-                scrollOffset -= _this4.dropdownOptions.clientHeight / 2; // center in dropdown
-                _this4.dropdownOptions.scrollTop = scrollOffset;
+              if (_this71.dropdown.isScrollable) {
+                var scrollOffset = selectedOption[0].getBoundingClientRect().top - _this71.dropdownOptions.getBoundingClientRect().top; // scroll to selected option
+                scrollOffset -= _this71.dropdownOptions.clientHeight / 2; // center in dropdown
+                _this71.dropdownOptions.scrollTop = scrollOffset;
               }
             }
           };
@@ -23636,7 +22888,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_addOptionToValueDict',
+      key: "_addOptionToValueDict",
       value: function _addOptionToValueDict(el, optionEl) {
         var index = Object.keys(this._valueDict).length;
         var key = this.dropdownOptions.id + index;
@@ -23653,7 +22905,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeDropdown',
+      key: "_removeDropdown",
       value: function _removeDropdown() {
         $(this.wrapper).find('.caret').remove();
         $(this.input).remove();
@@ -23671,22 +22923,22 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_appendOptionWithIcon',
+      key: "_appendOptionWithIcon",
       value: function _appendOptionWithIcon(select, option, type) {
         // Add disabled attr if disabled
         var disabledClass = option.disabled ? 'disabled ' : '';
         var optgroupClass = type === 'optgroup-option' ? 'optgroup-option ' : '';
-        var multipleCheckbox = this.isMultiple ? '<label><input type="checkbox"' + disabledClass + '"/><span>' + option.innerHTML + '</span></label>' : option.innerHTML;
+        var multipleCheckbox = this.isMultiple ? "<label><input type=\"checkbox\"" + disabledClass + "\"/><span>" + option.innerHTML + "</span></label>" : option.innerHTML;
         var liEl = $('<li></li>');
         var spanEl = $('<span></span>');
         spanEl.html(multipleCheckbox);
-        liEl.addClass(disabledClass + ' ' + optgroupClass);
+        liEl.addClass(disabledClass + " " + optgroupClass);
         liEl.append(spanEl);
 
         // add icons
         var iconUrl = option.getAttribute('data-icon');
         if (!!iconUrl) {
-          var imgEl = $('<img alt="" src="' + iconUrl + '">');
+          var imgEl = $("<img alt=\"\" src=\"" + iconUrl + "\">");
           liEl.prepend(imgEl);
         }
 
@@ -23702,7 +22954,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_toggleEntryFromArray',
+      key: "_toggleEntryFromArray",
       value: function _toggleEntryFromArray(key) {
         var notAdded = !this._keysSelected.hasOwnProperty(key);
         var $optionLi = $(this._valueDict[key].optionEl);
@@ -23729,7 +22981,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setValueToInput',
+      key: "_setValueToInput",
       value: function _setValueToInput() {
         var values = [];
         var options = this.$el.find('option');
@@ -23756,7 +23008,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setSelectedStates',
+      key: "_setSelectedStates",
       value: function _setSelectedStates() {
         this._keysSelected = {};
 
@@ -23780,7 +23032,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_activateOption',
+      key: "_activateOption",
       value: function _activateOption(collection, newOption) {
         if (newOption) {
           if (!this.isMultiple) {
@@ -23797,7 +23049,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getSelectedValues',
+      key: "getSelectedValues",
       value: function getSelectedValues() {
         var selectedValues = [];
         for (var key in this._keysSelected) {
@@ -23806,9 +23058,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return selectedValues;
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(FormSelect.__proto__ || Object.getPrototypeOf(FormSelect), 'init', this).call(this, this, els, options);
+        return _get(FormSelect.__proto__ || Object.getPrototypeOf(FormSelect), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -23816,13 +23068,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_FormSelect;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -23837,17 +23089,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     M.initializeJqueryWrapper(FormSelect, 'formSelect', 'M_FormSelect');
   }
 })(cash);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-(function ($, anim) {
+;(function ($, anim) {
   'use strict';
 
   var _defaults = {};
@@ -23857,8 +23099,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
    *
    */
 
-  var Range = function (_Component) {
-    _inherits(Range, _Component);
+  var Range = function (_Component21) {
+    _inherits(Range, _Component21);
 
     /**
      * Construct Range instance
@@ -23869,27 +23111,27 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
     function Range(el, options) {
       _classCallCheck(this, Range);
 
-      var _this = _possibleConstructorReturn(this, (Range.__proto__ || Object.getPrototypeOf(Range)).call(this, Range, el, options));
+      var _this72 = _possibleConstructorReturn(this, (Range.__proto__ || Object.getPrototypeOf(Range)).call(this, Range, el, options));
 
-      _this.el.M_Range = _this;
+      _this72.el.M_Range = _this72;
 
       /**
        * Options for the range
        * @member Range#options
        */
-      _this.options = $.extend({}, Range.defaults, options);
+      _this72.options = $.extend({}, Range.defaults, options);
 
-      _this._mousedown = false;
+      _this72._mousedown = false;
 
       // Setup
-      _this._setupThumb();
+      _this72._setupThumb();
 
-      _this._setupEventHandlers();
-      return _this;
+      _this72._setupEventHandlers();
+      return _this72;
     }
 
     _createClass(Range, [{
-      key: 'destroy',
+      key: "destroy",
 
 
       /**
@@ -23906,7 +23148,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupEventHandlers',
+      key: "_setupEventHandlers",
       value: function _setupEventHandlers() {
         this._handleRangeChangeBound = this._handleRangeChange.bind(this);
         this._handleRangeMousedownTouchstartBound = this._handleRangeMousedownTouchstart.bind(this);
@@ -23936,7 +23178,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeEventHandlers',
+      key: "_removeEventHandlers",
       value: function _removeEventHandlers() {
         this.el.removeEventListener('change', this._handleRangeChangeBound);
 
@@ -23961,7 +23203,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleRangeChange',
+      key: "_handleRangeChange",
       value: function _handleRangeChange() {
         $(this.value).html(this.$el.val());
 
@@ -23979,7 +23221,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleRangeMousedownTouchstart',
+      key: "_handleRangeMousedownTouchstart",
       value: function _handleRangeMousedownTouchstart(e) {
         // Set indicator value
         $(this.value).html(this.$el.val());
@@ -24002,7 +23244,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleRangeInputMousemoveTouchmove',
+      key: "_handleRangeInputMousemoveTouchmove",
       value: function _handleRangeInputMousemoveTouchmove() {
         if (this._mousedown) {
           if (!$(this.thumb).hasClass('active')) {
@@ -24020,7 +23262,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleRangeMouseupTouchend',
+      key: "_handleRangeMouseupTouchend",
       value: function _handleRangeMouseupTouchend() {
         this._mousedown = false;
         this.$el.removeClass('active');
@@ -24031,7 +23273,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_handleRangeBlurMouseoutTouchleave',
+      key: "_handleRangeBlurMouseoutTouchleave",
       value: function _handleRangeBlurMouseoutTouchleave() {
         if (!this._mousedown) {
           var paddingLeft = parseInt(this.$el.css('padding-left'));
@@ -24058,7 +23300,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_setupThumb',
+      key: "_setupThumb",
       value: function _setupThumb() {
         this.thumb = document.createElement('span');
         this.value = document.createElement('span');
@@ -24073,7 +23315,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_removeThumb',
+      key: "_removeThumb",
       value: function _removeThumb() {
         $(this.thumb).remove();
       }
@@ -24083,7 +23325,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_showRangeBubble',
+      key: "_showRangeBubble",
       value: function _showRangeBubble() {
         var paddingLeft = parseInt($(this.thumb).parent().css('padding-left'));
         var marginLeft = -7 + paddingLeft + 'px'; // TODO: fix magic number?
@@ -24105,7 +23347,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: '_calcRangeOffset',
+      key: "_calcRangeOffset",
       value: function _calcRangeOffset() {
         var width = this.$el.width() - 15;
         var max = parseFloat(this.$el.attr('max')) || 100; // Range default max
@@ -24114,9 +23356,9 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
         return percent * width;
       }
     }], [{
-      key: 'init',
+      key: "init",
       value: function init(els, options) {
-        return _get(Range.__proto__ || Object.getPrototypeOf(Range), 'init', this).call(this, this, els, options);
+        return _get(Range.__proto__ || Object.getPrototypeOf(Range), "init", this).call(this, this, els, options);
       }
 
       /**
@@ -24124,13 +23366,13 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
        */
 
     }, {
-      key: 'getInstance',
+      key: "getInstance",
       value: function getInstance(el) {
         var domElem = !!el.jquery ? el[0] : el;
         return domElem.M_Range;
       }
     }, {
-      key: 'defaults',
+      key: "defaults",
       get: function () {
         return _defaults;
       }
@@ -24147,35 +23389,6 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
   Range.init($('input[type=range]'));
 })(cash, M.anime);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 (function() {
   (function() {
     (function() {
@@ -24899,7 +24112,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 }).call(this);
 (function() {
   $(document).on('turbolinks:load', function() {
-    $('.datepicker').pickadate({
+    $('.datepicker').datepicker({
       selectMonths: true,
       selectYears: 5,
       today: 'Today',
@@ -24913,24 +24126,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 }).call(this);
 (function() {
   $(document).on('turbolinks:load', function() {
-    $('.sidenav-trigger').sideNav();
+    $('.sidenav').sidenav();
   });
 
 }).call(this);
-// This is a manifest file that'll be compiled into application.js, which will include all the files
-// listed below.
-//
-// Any JavaScript/Coffee file within this directory, lib/assets/javascripts, vendor/assets/javascripts,
-// or any plugin's vendor/assets/javascripts directory can be referenced here using a relative path.
-//
-// It's not advisable to add code directly here, but if you do, it'll appear at the bottom of the
-// compiled file. JavaScript code in this file should be added after the last require_* statement.
-//
-// Read Sprockets README (https://github.com/rails/sprockets#sprockets-directives) for details
-// about supported directives.
 
 
 
 
-
-;
